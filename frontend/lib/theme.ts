@@ -1,0 +1,28 @@
+export const ThemeTokens = {
+  colors: {
+    surface:               '#07070D',
+    surfaceContainerLow:   '#0E0E18',
+    surfaceContainer:      '#161622',
+    surfaceContainerHigh:  '#1E1E2C',
+    mtnYellow:             '#FFD000',
+    mtnYellowBright:       '#FFE040',
+    mtnYellowDim:          '#C9A400',
+    mtnGold:               '#F5A623',
+    onSurface:             '#F0EDE8',
+    onSurfaceVariant:      '#A09BB0',
+    outline:               '#3D3850',
+    error:                 '#FF8A80',
+    errorContainer:        'rgba(255, 138, 128, 0.1)',
+    secondary:             '#82B1FF',
+    tertiary:              '#80DEEA',
+    rowHover:              '#16162A',
+    green:                 '#4ADE80',
+    orange:                '#FB923C',
+  },
+  fonts: {
+    hero: 'var(--font-dm-sans), sans-serif',
+    body: 'var(--font-inter), sans-serif',
+    label: 'var(--font-space-mono), monospace',
+    data: 'var(--font-jetbrains-mono), monospace',
+  },
+};
