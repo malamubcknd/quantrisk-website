@@ -1,23 +1,88 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { fetchNews, fetchNewsSummary, triggerScrape, NewsArticle, NewsSummary } from '@/lib/api';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import {
   Newspaper, RefreshCw, AlertTriangle, TrendingUp, Tag,
   ChevronDown, ChevronUp, ExternalLink, Brain, Shield, Wifi,
-  Globe, Activity, Eye, Search, CalendarDays, X
+  Globe, Activity, Eye, Search, CalendarDays, X, Cpu, Briefcase
 } from 'lucide-react';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+const HelpIcon = ({ className }: { className?: string }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+// ── Helpers & Constants ──────────────────────────────────────────────────────
 
 const CATEGORY_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
-  regulatory:    { label: 'Regulatory',    color: 'text-orange-400', bg: 'bg-orange-400/10 border-orange-400/20', icon: <Shield    className="w-3.5 h-3.5" /> },
-  fx_financial:  { label: 'FX / Financial',color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20', icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  competitive:   { label: 'Competitive',   color: 'text-blue-400',   bg: 'bg-blue-400/10 border-blue-400/20',   icon: <Activity  className="w-3.5 h-3.5" /> },
-  operational:   { label: 'Operational',   color: 'text-purple-400', bg: 'bg-purple-400/10 border-purple-400/20',icon: <Wifi      className="w-3.5 h-3.5" /> },
-  political:     { label: 'Political',     color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',    icon: <Globe     className="w-3.5 h-3.5" /> },
-  reputational:  { label: 'Reputational',  color: 'text-pink-400',   bg: 'bg-pink-400/10 border-pink-400/20',  icon: <Eye       className="w-3.5 h-3.5" /> },
+  strategic:    { label: 'Strategic',    color: 'text-red-400',    bg: 'bg-red-400/10 border-red-400/20',       icon: <Shield    className="w-3.5 h-3.5" /> },
+  governance:   { label: 'Governance',   color: 'text-slate-400',  bg: 'bg-slate-400/10 border-slate-400/20',   icon: <Briefcase className="w-3.5 h-3.5" /> },
+  financial:    { label: 'Financial',    color: 'text-yellow-400', bg: 'bg-yellow-400/10 border-yellow-400/20', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+  technology:   { label: 'Technology',   color: 'text-blue-400',   bg: 'bg-blue-400/10 border-blue-400/20',     icon: <Cpu        className="w-3.5 h-3.5" /> },
+  operational:  { label: 'Operational',  color: 'text-orange-400', bg: 'bg-orange-400/10 border-orange-400/20', icon: <Wifi       className="w-3.5 h-3.5" /> },
+  external:     { label: 'External',     color: 'text-pink-400',   bg: 'bg-pink-400/10 border-pink-400/20',     icon: <Globe     className="w-3.5 h-3.5" /> },
+  other:        { label: 'Other',        color: 'text-gray-400',   bg: 'bg-gray-400/10 border-gray-400/20',     icon: <HelpIcon  className="w-3.5 h-3.5" /> },
+};
+
+// Clean subcategories without number prefixes
+const SUBCATEGORIES: Record<string, string[]> = {
+  strategic: [
+    "Strategic & Execution",
+    "Regulatory & Stakeholders",
+    "Products and Innovation",
+    "M&A, Divestitures and Strategic Partnerships"
+  ],
+  governance: [
+    "Compliance",
+    "Internal Control Environment",
+    "Fraud and Financial Crime",
+    "Governance",
+    "Social and Ethics"
+  ],
+  financial: [
+    "Financial Markets",
+    "Liquidity and Funding",
+    "Tax",
+    "Financial Accounting and Reporting",
+    "Credit Risk",
+    "Financial Performance & Returns"
+  ],
+  technology: [
+    "Network",
+    "Information Technology",
+    "Information Security"
+  ],
+  operational: [
+    "Supply Chain",
+    "Sales and Distribution",
+    "Customer Experience",
+    "Continuity Risk",
+    "Human Capital",
+    "Environment",
+    "Reputation, Branding and Marketing"
+  ],
+  external: [
+    "Competition",
+    "Legal",
+    "Political and Macroeconomy"
+  ],
+  other: [
+    "Other"
+  ]
 };
 
 const TIER_STYLE: Record<string, { bar: string; label: string }> = {
@@ -32,7 +97,12 @@ const SENTIMENT_STYLE: Record<string, string> = {
   positive: 'text-green-400 bg-green-400/10',
 };
 
-const CATEGORIES = ['regulatory', 'fx_financial', 'competitive', 'operational', 'political', 'reputational'];
+const CATEGORIES = ['strategic', 'governance', 'financial', 'technology', 'operational', 'external', 'other'];
+
+function cleanSubcategory(subcat: string | null | undefined): string {
+  if (!subcat) return '';
+  return subcat.replace(/^\d+\s*-\s*/, '').trim();
+}
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
@@ -47,12 +117,12 @@ function fmtGhs(v: number | null): string {
 // ── Summary bar ───────────────────────────────────────────────────────────────
 
 function SummaryBar({ summary }: { summary: NewsSummary }) {
-  const catMeta = summary.topRiskCategory ? CATEGORY_META[summary.topRiskCategory] : null;
+  const catMeta = summary.topRiskCategory ? CATEGORY_META[summary.topRiskCategory.toLowerCase()] : null;
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[
         { label: 'Articles Today',    value: summary.articlesToday,  sub: 'scraped in last 24h' },
-        { label: 'Total Articles',    value: summary.totalArticles,  sub: 'in database' },
+        { label: 'Total Articles',    value: summary.totalArticles,  sub: 'matching filters' },
         { label: 'Top Risk Category', value: catMeta?.label ?? summary.topRiskCategory ?? '—', sub: 'by article count' },
       ].map(({ label, value, sub }) => (
         <div key={label} className="rounded-xl border p-4"
@@ -66,7 +136,7 @@ function SummaryBar({ summary }: { summary: NewsSummary }) {
   );
 }
 
-// ── Extractive summary — first 2–3 complete sentences from the body ──────────
+// ── Extractive summary ──────────────────────────────────────────────────────────
 
 function extractSummary(body: string): string {
   if (!body) return '';
@@ -96,16 +166,17 @@ function ArticleCard({
   isExpanded,
   onToggle,
 }: {
-  article: NewsArticle;
+  article: NewsArticle & { subcategory?: string | null };
   isExpanded: boolean;
   onToggle: () => void;
 }) {
   const [showFull, setShowFull] = React.useState(false);
-  const cat  = article.category  ? CATEGORY_META[article.category]  : null;
+  const cat  = article.category  ? CATEGORY_META[article.category.toLowerCase()]  : null;
   const tier = article.alertTier ? TIER_STYLE[article.alertTier]     : null;
   const summary = article.body ? extractSummary(article.body) : '';
   const bodyFull = article.body ?? '';
   const BODY_PREVIEW = 600;
+  const cleanedSubcat = cleanSubcategory(article.subcategory);
 
   return (
     <div
@@ -116,7 +187,6 @@ function ArticleCard({
         boxShadow:   isExpanded ? '0 4px 24px rgba(255,208,0,0.04)' : 'none',
       }}
     >
-      {/* ── Clickable header ── */}
       <button onClick={onToggle} className="w-full text-left p-4 group">
         <div className="flex items-start gap-3">
           <div
@@ -145,6 +215,11 @@ function ArticleCard({
                   {cat.icon} {cat.label}
                 </span>
               )}
+              {cleanedSubcat && cleanedSubcat.toLowerCase() !== 'other' && (
+                <span className="px-2 py-0.5 rounded-full border border-white/5 bg-white/5 font-mono text-[10px]">
+                  {cleanedSubcat}
+                </span>
+              )}
               {article.alertTier && (
                 <span className={`px-2 py-0.5 rounded-full font-mono font-bold border border-current ${tier?.label ?? ''}`}>
                   {article.alertTier}
@@ -163,11 +238,8 @@ function ArticleCard({
         </div>
       </button>
 
-      {/* ── Expanded detail ── */}
       {isExpanded && (
         <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: 'rgba(255,208,0,0.1)' }}>
-
-          {/* ── Quick Summary ── */}
           {summary && (
             <div className="mt-4 rounded-lg p-4 space-y-2"
               style={{ background: 'rgba(255,255,255,0.03)', borderLeft: '3px solid rgba(255,208,0,0.4)' }}>
@@ -178,7 +250,6 @@ function ArticleCard({
             </div>
           )}
 
-          {/* ── AI Risk Analysis ── */}
           {(article.severity != null || article.mtnRelevance != null || article.impactGhsMid != null) && (
             <div className="rounded-lg border p-4 space-y-3"
               style={{ borderColor: 'rgba(255,208,0,0.15)', background: 'rgba(255,208,0,0.02)' }}>
@@ -223,7 +294,6 @@ function ArticleCard({
             </div>
           )}
 
-          {/* ── Full article body ── */}
           {bodyFull && (
             <div className="space-y-2">
               <p className="text-xs font-mono uppercase tracking-widest text-on-surface-variant">Full Article</p>
@@ -248,18 +318,17 @@ function ArticleCard({
             </div>
           )}
 
-          {/* ── Named entities ── */}
-          {article.entities && Object.values(article.entities).some((arr: string[]) => arr.length > 0) && (
+          {article.entities && Object.values(article.entities).some((arr: any) => arr?.length > 0) && (
             <div className="space-y-2">
               <p className="text-xs font-mono uppercase tracking-widest text-on-surface-variant flex items-center gap-1.5">
                 <Tag className="w-3 h-3" /> Named Entities
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  ...article.entities.orgs.map((e: string)      => ({ label: e, color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' })),
-                  ...article.entities.locations.map((e: string) => ({ label: e, color: 'text-green-400 bg-green-400/10 border-green-400/20' })),
-                  ...article.entities.persons.map((e: string)   => ({ label: e, color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' })),
-                  ...article.entities.money.map((e: string)     => ({ label: e, color: 'text-mtn-yellow bg-mtn-yellow/10 border-mtn-yellow/20' })),
+                  ...(article.entities.orgs?.map((e: string)      => ({ label: e, color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' })) ?? []),
+                  ...(article.entities.locations?.map((e: string) => ({ label: e, color: 'text-green-400 bg-green-400/10 border-green-400/20' })) ?? []),
+                  ...(article.entities.persons?.map((e: string)   => ({ label: e, color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' })) ?? []),
+                  ...(article.entities.money?.map((e: string)     => ({ label: e, color: 'text-mtn-yellow bg-mtn-yellow/10 border-mtn-yellow/20' })) ?? []),
                 ].map(({ label, color }, i) => (
                   <span key={i} className={`px-2 py-0.5 rounded-full border text-xs font-mono ${color}`}>{label}</span>
                 ))}
@@ -267,7 +336,6 @@ function ArticleCard({
             </div>
           )}
 
-          {/* ── View full article link ── */}
           <div className="pt-1 flex items-center gap-3">
             <a
               href={article.url}
@@ -302,6 +370,7 @@ export default function NewsPage() {
   const [hasMore,        setHasMore]        = useState(true);
   const [scraping,       setScraping]       = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeSubcategory, setActiveSubcategory] = useState<string | null>(null);
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [error,          setError]          = useState<string | null>(null);
   const [keyword,        setKeyword]        = useState('');
@@ -327,8 +396,13 @@ export default function NewsPage() {
           limit: PAGE_SIZE,
           offset: 0,
         }),
-        fetchNewsSummary(),
+        fetchNewsSummary(
+          applied.keyword || undefined,
+          applied.dateFrom || undefined,
+          applied.dateTo || undefined
+        ) as Promise<NewsSummary>,
       ]);
+
       setArticles(arts);
       setSummary(sum);
       setHasMore(arts.length === PAGE_SIZE);
@@ -343,8 +417,9 @@ export default function NewsPage() {
   const loadMore = useCallback(async () => {
     setLoadingMore(true);
     try {
+      const activeFilter = activeSubcategory || activeCategory || undefined;
       const more = await fetchNews({
-        category: activeCategory ?? undefined,
+        category: activeFilter,
         keyword: filters.keyword || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
@@ -359,7 +434,7 @@ export default function NewsPage() {
     } finally {
       setLoadingMore(false);
     }
-  }, [activeCategory, filters]);
+  }, [activeCategory, activeSubcategory, filters]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -370,7 +445,7 @@ export default function NewsPage() {
     setScraping(true);
     try {
       const result = await triggerScrape();
-      await loadData(activeCategory ?? undefined, filters);
+      await loadData(activeSubcategory || activeCategory || undefined, filters);
       alert(`Scrape complete — ${result.newArticles} new articles ingested.`);
     } catch (e) {
       alert(`Scrape failed: ${e}`);
@@ -381,15 +456,23 @@ export default function NewsPage() {
 
   function handleCategoryFilter(cat: string | null) {
     setActiveCategory(cat);
+    setActiveSubcategory(null);
     setExpandedId(null);
     loadData(cat ?? undefined, filters);
+  }
+
+  function handleSubcategoryFilter(subcat: string | null) {
+    setActiveSubcategory(subcat);
+    setExpandedId(null);
+    const filterToUse = subcat || activeCategory || undefined;
+    loadData(filterToUse, filters);
   }
 
   function applySearch() {
     const next = { keyword: keyword.trim(), dateFrom, dateTo };
     setFilters(next);
     setExpandedId(null);
-    void loadData(activeCategory ?? undefined, next);
+    void loadData(activeSubcategory || activeCategory || undefined, next);
   }
 
   function clearSearch() {
@@ -398,8 +481,16 @@ export default function NewsPage() {
     setDateTo('');
     setFilters(EMPTY_FILTERS);
     setExpandedId(null);
-    void loadData(activeCategory ?? undefined, EMPTY_FILTERS);
+    void loadData(activeSubcategory || activeCategory || undefined, EMPTY_FILTERS);
   }
+
+  const sortedArticles = useMemo(() => {
+    return [...articles].sort((a, b) => {
+      const dateA = new Date(a.publishedAt || a.scrapedAt || 0).getTime();
+      const dateB = new Date(b.publishedAt || b.scrapedAt || 0).getTime();
+      return dateB - dateA;
+    });
+  }, [articles]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -429,6 +520,30 @@ export default function NewsPage() {
 
       {/* Summary bar */}
       {summary && <SummaryBar summary={summary} />}
+
+      {/* Dynamic count boxes for all 7 categories on a single row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mt-4">
+        {['strategic', 'governance', 'financial', 'technology', 'operational', 'external', 'other'].map(cat => {
+          const meta = CATEGORY_META[cat]!;
+          const count = summary?.categoryBreakdown?.[cat] ?? 0;
+          return (
+            <div
+              key={cat}
+              className="rounded-xl border p-3 flex flex-col justify-between transition-all duration-200 animate-in fade-in zoom-in-95 duration-300"
+              style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.06)' }}
+            >
+              <div className="flex items-center gap-1.5 text-on-surface-variant mb-1">
+                <span className={`${meta.color}`}>{meta.icon}</span>
+                <span className="text-[10px] font-mono uppercase tracking-wider truncate">{meta.label}</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-2xl font-hero font-bold text-on-surface">{count}</span>
+                <span className="text-[10px] text-on-surface-variant ml-1">articles</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Search and publication-date filters */}
       <div className="rounded-xl border border-white/7 bg-white/[0.02] p-4">
@@ -467,7 +582,7 @@ export default function NewsPage() {
         </div>
         {(filters.keyword || filters.dateFrom || filters.dateTo) && (
           <p className="mt-3 text-[10px] font-mono text-on-surface-variant">
-            Showing {articles.length} result{articles.length === 1 ? '' : 's'}
+            Showing {sortedArticles.length} result{sortedArticles.length === 1 ? '' : 's'}
             {filters.keyword ? ` matching “${filters.keyword}”` : ''}
             {filters.dateFrom ? ` from ${filters.dateFrom}` : ''}
             {filters.dateTo ? ` through ${filters.dateTo}` : ''}
@@ -475,34 +590,71 @@ export default function NewsPage() {
         )}
       </div>
 
-      {/* Category filters */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => handleCategoryFilter(null)}
-          className={`px-3 py-1.5 rounded-full text-xs font-mono border transition-all ${
-            activeCategory == null
-              ? 'bg-mtn-yellow/15 border-mtn-yellow/30 text-mtn-yellow'
-              : 'border-white/10 text-on-surface-variant hover:border-white/20'
-          }`}
-        >
-          All
-        </button>
-        {CATEGORIES.map(cat => {
-          const meta = CATEGORY_META[cat]!;
-          const isActive = activeCategory === cat;
-          return (
+      {/* ── Layer 1: High-Level Categories ── */}
+      <div className="space-y-2 animate-in fade-in duration-200">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant">Risk Categories (Layer 1)</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => handleCategoryFilter(null)}
+            className={`px-3 py-1.5 rounded-full text-xs font-mono border transition-all ${
+              activeCategory == null
+                ? 'bg-mtn-yellow/15 border-mtn-yellow/30 text-mtn-yellow'
+                : 'border-white/10 text-on-surface-variant hover:border-white/20'
+            }`}
+          >
+            All Categories
+          </button>
+          {CATEGORIES.map(cat => {
+            const meta = CATEGORY_META[cat]!;
+            const isActive = activeCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => handleCategoryFilter(cat)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono border transition-all ${
+                  isActive ? `${meta.bg} ${meta.color}` : 'border-white/10 text-on-surface-variant hover:border-white/20'
+                }`}
+              >
+                {meta.icon} {meta.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Layer 2: Subcategories (Clean Names) ── */}
+      {activeCategory && SUBCATEGORIES[activeCategory] && (
+        <div className="space-y-2 p-3 rounded-xl bg-white/[0.01] border border-white/5 animate-in slide-in-from-top-1 duration-250">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant">
+            Subcategories under {CATEGORY_META[activeCategory]?.label} (Layer 2)
+          </p>
+          <div className="flex flex-wrap gap-1.5">
             <button
-              key={cat}
-              onClick={() => handleCategoryFilter(cat)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-mono border transition-all ${
-                isActive ? `${meta.bg} ${meta.color}` : 'border-white/10 text-on-surface-variant hover:border-white/20'
+              onClick={() => handleSubcategoryFilter(null)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-mono border transition-all ${
+                activeSubcategory == null
+                  ? 'bg-white/10 border-white/25 text-on-surface'
+                  : 'border-white/5 text-on-surface-variant/70 hover:border-white/10 hover:text-on-surface'
               }`}
             >
-              {meta.icon} {meta.label}
+              All Subcategories
             </button>
-          );
-        })}
-      </div>
+            {SUBCATEGORIES[activeCategory].map(sub => (
+              <button
+                key={sub}
+                onClick={() => handleSubcategoryFilter(sub)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-mono border transition-all ${
+                  activeSubcategory === sub
+                    ? 'bg-mtn-yellow/15 border-mtn-yellow/25 text-mtn-yellow'
+                    : 'border-white/5 text-on-surface-variant/70 hover:border-white/10 hover:text-on-surface'
+                }`}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -517,14 +669,14 @@ export default function NewsPage() {
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonBlock key={i} className="h-20" />)}
         </div>
-      ) : articles.length === 0 ? (
+      ) : sortedArticles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant gap-3">
           <Newspaper className="w-10 h-10 opacity-30" />
           <p className="text-sm">No articles found. Adjust the filters or click &quot;Scrape Now&quot; to fetch the latest news.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {articles.map(a => (
+          {sortedArticles.map(a => (
             <ArticleCard
               key={a.id}
               article={a}
@@ -533,8 +685,7 @@ export default function NewsPage() {
             />
           ))}
 
-          {/* Load More */}
-          {articles.length > 0 && (
+          {sortedArticles.length > 0 && (
             <div className="flex flex-col items-center gap-2 pt-4 pb-2">
               {hasMore ? (
                 <button
@@ -548,7 +699,7 @@ export default function NewsPage() {
                 </button>
               ) : (
                 <p className="text-xs font-mono text-on-surface-variant">
-                  All {articles.length} articles loaded
+                  All {sortedArticles.length} articles loaded
                 </p>
               )}
             </div>

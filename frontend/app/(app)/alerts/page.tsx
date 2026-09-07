@@ -1,11 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { fetchAlerts, fetchAlertSummary, acknowledgeAlert, NewsAlert, AlertSummary } from '@/lib/api';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import { Bell, CheckCircle, AlertTriangle, AlertOctagon, Eye, Filter } from 'lucide-react';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const TIER_META: Record<string, { bar: string; badge: string; bg: string; icon: React.ReactNode }> = {
   Critical: {
@@ -33,20 +31,32 @@ function fmtGhs(v: number | null): string {
   return `GHS ${v.toFixed(1)}m`;
 }
 
+function cleanSubcategory(subcat: string | null | undefined): string {
+  if (!subcat) return '';
+  return subcat.replace(/^\d+\s*-\s*/, '').trim();
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
 }
 
 function capitalize(s: string): string {
+  if (!s) return '';
   return s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' / ');
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
 function SummaryRow({ summary }: { summary: AlertSummary }) {
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       {[
         { label: 'Active Alerts', value: summary.total_active, color: 'text-on-surface' },
         { label: 'Critical',      value: summary.critical,     color: 'text-red-400' },
@@ -68,11 +78,12 @@ function AlertCard({
   onAcknowledge,
   ackLoading,
 }: {
-  alert: NewsAlert;
+  alert: NewsAlert & { subcategory?: string | null };
   onAcknowledge: (id: string) => void;
   ackLoading: boolean;
 }) {
   const meta = (TIER_META[alert.tier] ?? TIER_META['Watch'])!;
+  const cleanedSubcat = cleanSubcategory(alert.subcategory);
 
   return (
     <div className={`relative rounded-xl border overflow-hidden transition-all duration-200 ${
@@ -80,33 +91,32 @@ function AlertCard({
     } ${meta.bg}`}
       style={{ background: 'rgba(255,255,255,0.02)' }}
     >
-      {/* tier stripe */}
       <div className={`absolute left-0 top-0 bottom-0 w-1 ${meta.bar}`} />
 
       <div className="pl-4 pr-4 py-4 flex items-start gap-4">
-        {/* icon */}
         <div className="shrink-0 mt-0.5">{meta.icon}</div>
 
-        {/* body */}
         <div className="flex-1 min-w-0 space-y-1.5">
           <p className="text-sm font-semibold text-on-surface leading-snug">{alert.headline}</p>
 
           <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant font-mono">
-            {/* tier badge */}
             <span className={`px-2 py-0.5 rounded-full border font-bold ${meta?.badge ?? ''}`}>{alert.tier}</span>
 
-            {/* category */}
             <span className="px-2 py-0.5 rounded-full border border-white/10 bg-white/5">
               {capitalize(alert.category)}
             </span>
 
-            {/* source */}
+            {cleanedSubcat && cleanedSubcat.toLowerCase() !== 'other' && (
+              <span className="px-2 py-0.5 rounded-full border border-white/5 bg-white/5 text-[10px]">
+                {cleanedSubcat}
+              </span>
+            )}
+
             {alert.sourceName && <span>{alert.sourceName}</span>}
             <span>·</span>
             <span>{fmtDate(alert.createdAt)}</span>
           </div>
 
-          {/* metrics row */}
           <div className="flex flex-wrap gap-4 text-xs font-mono pt-1">
             <span className="text-on-surface-variant">
               Severity: <span className="text-on-surface font-bold">{alert.severity.toFixed(1)}/10</span>
@@ -128,7 +138,6 @@ function AlertCard({
           )}
         </div>
 
-        {/* acknowledge button */}
         {!alert.acknowledged && (
           <button
             onClick={() => onAcknowledge(alert.id)}
@@ -180,38 +189,59 @@ export default function AlertsPage() {
     }
   }, []);
 
-  useEffect(() => { loadData(tierFilter, showAcked); }, [loadData, tierFilter, showAcked]);
+  useEffect(() => {
+    loadData(tierFilter, showAcked);
+  }, [loadData, tierFilter, showAcked]);
 
   async function handleAcknowledge(alertId: string) {
     setAckIds(prev => new Set(prev).add(alertId));
     try {
       await acknowledgeAlert(alertId);
-      setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, acknowledged: true, acknowledgedAt: new Date().toISOString() } : a));
-      setSummary(prev => prev ? { ...prev, total_active: Math.max(0, prev.total_active - 1) } : prev);
+      setAlerts(prev =>
+        prev.map(a =>
+          a.id === alertId
+            ? { ...a, acknowledged: true, acknowledgedAt: new Date().toISOString() }
+            : a
+        )
+      );
+      setSummary(prev =>
+        prev ? { ...prev, total_active: Math.max(0, prev.total_active - 1) } : prev
+      );
     } catch (e) {
       alert(`Failed to acknowledge: ${e}`);
     } finally {
-      setAckIds(prev => { const next = new Set(prev); next.delete(alertId); return next; });
+      setAckIds(prev => {
+        const next = new Set(prev);
+        next.delete(alertId);
+        return next;
+      });
     }
   }
 
+  const sortedAlerts = useMemo(() => {
+    return [...alerts].sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    });
+  }, [alerts]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-red-400/10 border border-red-400/20 flex items-center justify-center">
           <Bell className="w-5 h-5 text-red-400" />
         </div>
         <div>
           <h1 className="text-3xl font-hero font-bold text-on-surface">Risk Alerts</h1>
-          <p className="text-on-surface-variant mt-0.5">AI-generated alerts from live news — Watch · Warning · Critical</p>
+          <p className="text-on-surface-variant mt-0.5">
+            AI-generated alerts from live news — Watch · Warning · Critical
+          </p>
         </div>
       </div>
 
-      {/* Summary */}
       {summary && <SummaryRow summary={summary} />}
 
-      {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5 text-xs font-mono text-on-surface-variant">
           <Filter className="w-3.5 h-3.5" /> Tier:
@@ -245,7 +275,6 @@ export default function AlertsPage() {
         </div>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="flex items-center gap-2 p-4 rounded-xl border border-red-400/20 bg-red-400/05 text-red-400 text-sm">
           <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -253,19 +282,20 @@ export default function AlertsPage() {
         </div>
       )}
 
-      {/* Alert list */}
       {loading ? (
         <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => <SkeletonBlock key={i} className="h-24" />)}
+          {Array.from({ length: 5 }).map((_, i) => (
+            <SkeletonBlock key={i} className="h-24" />
+          ))}
         </div>
-      ) : alerts.length === 0 ? (
+      ) : sortedAlerts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-on-surface-variant gap-3">
           <Bell className="w-10 h-10 opacity-30" />
           <p className="text-sm">No alerts. Scrape news from the News Feed page to generate alerts.</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {alerts.map(a => (
+          {sortedAlerts.map(a => (
             <AlertCard
               key={a.id}
               alert={a}
