@@ -6,7 +6,7 @@ import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import { 
   Bell, CheckCircle, AlertTriangle, AlertOctagon, Eye, Filter, 
   Search, CalendarDays, X, Shield, Briefcase, TrendingUp, Cpu, Wifi, Globe,
-  ExternalLink, Newspaper  // ← NEW icons
+  ExternalLink, Newspaper, Brain
 } from 'lucide-react';
 
 // ── Icons & Meta ─────────────────────────────────────────────────────────────
@@ -95,52 +95,15 @@ function SummaryRow({ summary }: { summary: AlertSummary }) {
   );
 }
 
-// function AlertCard({ alert, onAcknowledge, ackLoading }: { alert: NewsAlert & { subcategory?: string | null }; onAcknowledge: (id: string) => void; ackLoading: boolean; }) {
-//   const meta = (TIER_META[alert.tier] ?? TIER_META['Watch'])!;
-//   const cleanedSubcat = cleanSubcategory(alert.subcategory);
-
-//   return (
-//     <div className={`relative rounded-xl border overflow-hidden transition-all duration-200 ${alert.acknowledged ? 'opacity-50' : ''} ${meta.bg}`} style={{ background: 'rgba(255,255,255,0.02)' }}>
-//       <div className={`absolute left-0 top-0 bottom-0 w-1 ${meta.bar}`} />
-//       <div className="pl-4 pr-4 py-4 flex items-start gap-4">
-//         <div className="shrink-0 mt-0.5">{meta.icon}</div>
-//         <div className="flex-1 min-w-0 space-y-1.5">
-//           <p className="text-sm font-semibold text-on-surface leading-snug">{alert.headline}</p>
-//           <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant font-mono">
-//             <span className={`px-2 py-0.5 rounded-full border font-bold ${meta?.badge ?? ''}`}>{alert.tier}</span>
-//             <span className="px-2 py-0.5 rounded-full border border-white/10 bg-white/5">{capitalize(alert.category)}</span>
-//             {cleanedSubcat && cleanedSubcat.toLowerCase() !== 'other' && (
-//               <span className="px-2 py-0.5 rounded-full border border-white/5 bg-white/5 text-[10px]">{cleanedSubcat}</span>
-//             )}
-//             {alert.sourceName && <span>{alert.sourceName}</span>}
-//             <span>·</span>
-//             <span>{fmtDate(alert.createdAt)}</span>
-//           </div>
-//           <div className="flex flex-wrap gap-4 text-xs font-mono pt-1">
-//             <span className="text-on-surface-variant">Severity: <span className="text-on-surface font-bold">{alert.severity.toFixed(1)}/10</span></span>
-//             <span className="text-on-surface-variant">MTN Relevance: <span className="text-on-surface font-bold">{alert.mtnRelevance != null ? `${(alert.mtnRelevance * 100).toFixed(0)}%` : '—'}</span></span>
-//             <span className="text-on-surface-variant">Impact: <span className="text-mtn-yellow font-bold">{fmtGhs(alert.impactGhsMid)}</span></span>
-//           </div>
-//           {alert.acknowledged && alert.acknowledgedAt && (
-//             <p className="text-xs text-on-surface-variant italic">Acknowledged {fmtDate(alert.acknowledgedAt)}</p>
-//           )}
-//         </div>
-//         {!alert.acknowledged && (
-//           <button
-//             onClick={() => onAcknowledge(alert.id)}
-//             disabled={ackLoading}
-//             className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all duration-150 disabled:opacity-40 hover:border-green-400/40 hover:text-green-400"
-//             style={{ borderColor: 'rgba(255,255,255,0.1)', color: 'rgba(240,237,232,0.5)' }}
-//           >
-//             <CheckCircle className="w-3.5 h-3.5" /> Ack
-//           </button>
-//         )}
-//       </div>
-//     </div>
-//   );
-// }
-
-function AlertCard({ alert, onAcknowledge, ackLoading }: { alert: NewsAlert & { subcategory?: string | null; articleUrl?: string | null }; onAcknowledge: (id: string) => void; ackLoading: boolean; }) {
+function AlertCard({ 
+  alert, 
+  onAcknowledge, 
+  ackLoading 
+}: { 
+  alert: NewsAlert & { subcategory?: string | null; articleUrl?: string | null }; 
+  onAcknowledge: (id: string) => void; 
+  ackLoading: boolean; 
+}) {
   const meta = (TIER_META[alert.tier] ?? TIER_META['Watch'])!;
   const cleanedSubcat = cleanSubcategory(alert.subcategory);
 
@@ -161,14 +124,28 @@ function AlertCard({ alert, onAcknowledge, ackLoading }: { alert: NewsAlert & { 
             <span>·</span>
             <span>{fmtDate(alert.createdAt)}</span>
           </div>
+          
           <div className="flex flex-wrap gap-4 text-xs font-mono pt-1">
             <span className="text-on-surface-variant">Severity: <span className="text-on-surface font-bold">{alert.severity.toFixed(1)}/10</span></span>
             <span className="text-on-surface-variant">MTN Relevance: <span className="text-on-surface font-bold">{alert.mtnRelevance != null ? `${(alert.mtnRelevance * 100).toFixed(0)}%` : '—'}</span></span>
             <span className="text-on-surface-variant">Impact: <span className="text-mtn-yellow font-bold">{fmtGhs(alert.impactGhsMid)}</span></span>
           </div>
 
-          {/* ── NEW: Article Link Row ── */}
-          <div className="flex items-center gap-2 pt-2">
+          {/* ── AI Summarizer Box (Direct context attachment) ── */}
+          {alert.summary && (
+            <div className="rounded-lg p-3 border border-mtn-yellow/20 bg-mtn-yellow/5 space-y-1 my-2 max-w-full">
+              <div className="flex items-center gap-1.5 text-mtn-yellow text-[11px] font-mono font-bold uppercase tracking-wider">
+                <Brain className="w-3.5 h-3.5" />
+                AI Risk Summary & MTN Impact
+              </div>
+              <p className="text-xs font-sans text-on-surface leading-relaxed">
+                {alert.summary}
+              </p>
+            </div>
+          )}
+
+          {/* ── Article Link Row ── */}
+          <div className="flex items-center gap-2 pt-1">
             {alert.articleUrl ? (
               <a
                 href={alert.articleUrl}
@@ -192,9 +169,10 @@ function AlertCard({ alert, onAcknowledge, ackLoading }: { alert: NewsAlert & { 
           </div>
 
           {alert.acknowledged && alert.acknowledgedAt && (
-            <p className="text-xs text-on-surface-variant italic">Acknowledged {fmtDate(alert.acknowledgedAt)}</p>
+            <p className="text-xs text-on-surface-variant italic pt-1">Acknowledged {fmtDate(alert.acknowledgedAt)}</p>
           )}
         </div>
+        
         {!alert.acknowledged && (
           <button
             onClick={() => onAcknowledge(alert.id)}
@@ -210,8 +188,7 @@ function AlertCard({ alert, onAcknowledge, ackLoading }: { alert: NewsAlert & { 
   );
 }
 
-
-// ── Main Page ────────────────────────────────────────────────────────────────
+// ── Main Page Component ──────────────────────────────────────────────────────
 
 export default function AlertsPage() {
   const [alerts, setAlerts]       = useState<NewsAlert[]>([]);
@@ -240,7 +217,7 @@ export default function AlertsPage() {
         fetchAlerts({
           tier: tier === 'All' ? undefined : tier,
           acknowledged: showAck ? undefined : false,
-          limit: 200, // Increased limit so client-side filtering has enough data
+          limit: 200, 
         }),
         fetchAlertSummary(),
       ]);
@@ -304,7 +281,7 @@ export default function AlertsPage() {
       result = result.filter(a => new Date(a.createdAt || 0).getTime() >= fromMs);
     }
     if (filters.dateTo) {
-      const toMs = new Date(filters.dateTo).getTime() + 86399999; // End of day
+      const toMs = new Date(filters.dateTo).getTime() + 86399999; 
       result = result.filter(a => new Date(a.createdAt || 0).getTime() <= toMs);
     }
 
@@ -338,7 +315,7 @@ export default function AlertsPage() {
                 onChange={e => setKeyword(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') applySearch(); }}
                 placeholder="e.g. Cedi, NCA, Tax..."
-                className="w-full bg-transparent py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50"
+                className="w-full bg-transparent py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none"
               />
             </span>
           </label>
@@ -346,14 +323,14 @@ export default function AlertsPage() {
             <span className="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">From date</span>
             <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 focus-within:border-mtn-yellow/40">
               <CalendarDays className="h-4 w-4 text-on-surface-variant" />
-              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark]" />
+              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark] focus:outline-none" />
             </span>
           </label>
           <label className="space-y-1.5">
             <span className="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">To date</span>
             <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 focus-within:border-mtn-yellow/40">
               <CalendarDays className="h-4 w-4 text-on-surface-variant" />
-              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark]" />
+              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark] focus:outline-none" />
             </span>
           </label>
           <div className="flex gap-2">

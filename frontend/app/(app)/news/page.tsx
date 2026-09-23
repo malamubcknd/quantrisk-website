@@ -6,7 +6,7 @@ import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
 import {
   Newspaper, RefreshCw, AlertTriangle, TrendingUp, Tag,
   ChevronDown, ChevronUp, ExternalLink, Brain, Shield, Wifi,
-  Globe, Activity, Eye, Search, CalendarDays, X, Cpu, Briefcase
+  Globe, Search, CalendarDays, X, Cpu, Briefcase
 } from 'lucide-react';
 
 const HelpIcon = ({ className }: { className?: string }) => (
@@ -38,7 +38,6 @@ const CATEGORY_META: Record<string, { label: string; color: string; bg: string; 
   other:        { label: 'Other',        color: 'text-gray-400',   bg: 'bg-gray-400/10 border-gray-400/20',     icon: <HelpIcon  className="w-3.5 h-3.5" /> },
 };
 
-// Clean subcategories without number prefixes
 const SUBCATEGORIES: Record<string, string[]> = {
   strategic: [
     "Strategic & Execution",
@@ -136,14 +135,6 @@ function SummaryBar({ summary }: { summary: NewsSummary }) {
   );
 }
 
-// ── Extractive summary ──────────────────────────────────────────────────────────
-
-function extractSummary(body: string): string {
-  if (!body) return '';
-  const sentences = body.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 30);
-  return sentences.slice(0, 3).join(' ');
-}
-
 // ── Severity bar ──────────────────────────────────────────────────────────────
 
 function SeverityBar({ value }: { value: number }) {
@@ -170,12 +161,12 @@ function ArticleCard({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const [showFull, setShowFull] = React.useState(false);
+  const [showFull, setShowFull] = useState(false);
   const cat  = article.category  ? CATEGORY_META[article.category.toLowerCase()]  : null;
   const tier = article.alertTier ? TIER_STYLE[article.alertTier]     : null;
-  const summary = article.body ? extractSummary(article.body) : '';
   const bodyFull = article.body ?? '';
-  const BODY_PREVIEW = 600;
+  const displaySummary = article.summary?.trim() || 'Summary not available';
+  const BODY_PREVIEW = 500;
   const cleanedSubcat = cleanSubcategory(article.subcategory);
 
   return (
@@ -240,16 +231,18 @@ function ArticleCard({
 
       {isExpanded && (
         <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: 'rgba(255,208,0,0.1)' }}>
-          {summary && (
-            <div className="mt-4 rounded-lg p-4 space-y-2"
-              style={{ background: 'rgba(255,255,255,0.03)', borderLeft: '3px solid rgba(255,208,0,0.4)' }}>
-              <p className="text-xs font-mono uppercase tracking-widest text-mtn-yellow/70 flex items-center gap-1.5">
-                <Brain className="w-3.5 h-3.5" /> Quick Summary
-              </p>
-              <p className="text-sm text-on-surface leading-relaxed">{summary}</p>
+          {/* AI Risk Summary Box */}
+          <div className="mt-4 rounded-lg p-3.5 border border-mtn-yellow/25 bg-mtn-yellow/5 space-y-1.5">
+            <div className="flex items-center gap-2 text-mtn-yellow text-xs font-mono font-bold uppercase tracking-wider">
+              <Brain className="w-4 h-4" />
+              AI Risk Summary & MTN Impact
             </div>
-          )}
+            <p className="text-xs font-sans text-on-surface leading-relaxed">
+              {displaySummary}
+            </p>
+          </div>
 
+          {/* Risk Scores & Impact */}
           {(article.severity != null || article.mtnRelevance != null || article.impactGhsMid != null) && (
             <div className="rounded-lg border p-4 space-y-3"
               style={{ borderColor: 'rgba(255,208,0,0.15)', background: 'rgba(255,208,0,0.02)' }}>
@@ -294,11 +287,12 @@ function ArticleCard({
             </div>
           )}
 
+          {/* Full Body / Excerpt */}
           {bodyFull && (
             <div className="space-y-2">
-              <p className="text-xs font-mono uppercase tracking-widest text-on-surface-variant">Full Article</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-on-surface-variant">Full Article Content</p>
               <div className="text-sm text-on-surface-variant leading-relaxed space-y-2"
-                style={{ maxHeight: showFull ? 'none' : '200px', overflow: 'hidden', position: 'relative' }}>
+                style={{ maxHeight: showFull ? 'none' : '180px', overflow: 'hidden', position: 'relative' }}>
                 {bodyFull.split(/\n+/).filter(Boolean).map((para, i) => (
                   <p key={i}>{para}</p>
                 ))}
@@ -312,12 +306,13 @@ function ArticleCard({
                   onClick={() => setShowFull(v => !v)}
                   className="text-xs font-mono text-mtn-yellow hover:underline mt-1"
                 >
-                  {showFull ? '▲ Show less' : '▼ Show full article'}
+                  {showFull ? '▲ Show less' : '▼ Show full article text'}
                 </button>
               )}
             </div>
           )}
 
+          {/* Named Entities */}
           {article.entities && Object.values(article.entities).some((arr: any) => arr?.length > 0) && (
             <div className="space-y-2">
               <p className="text-xs font-mono uppercase tracking-widest text-on-surface-variant flex items-center gap-1.5">
@@ -336,7 +331,8 @@ function ArticleCard({
             </div>
           )}
 
-          <div className="pt-1 flex items-center gap-3">
+          {/* Link out button */}
+          <div className="pt-2 flex items-center gap-3">
             <a
               href={article.url}
               target="_blank"
@@ -345,10 +341,10 @@ function ArticleCard({
               style={{ borderColor: 'rgba(255,208,0,0.35)', color: '#FFD000' }}
             >
               <ExternalLink className="w-4 h-4" />
-              Read Full Article
+              Read Original Article
             </a>
             <span className="text-xs text-on-surface-variant font-mono">
-              Opens {article.sourceName ?? 'source'} in new tab
+              Opens source ({article.sourceName ?? 'External'}) in new tab
             </span>
           </div>
         </div>
@@ -357,7 +353,7 @@ function ArticleCard({
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+// ── Page Component ────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 20;
 const EMPTY_FILTERS = { keyword: '', dateFrom: '', dateTo: '' };
@@ -521,9 +517,9 @@ export default function NewsPage() {
       {/* Summary bar */}
       {summary && <SummaryBar summary={summary} />}
 
-      {/* Dynamic count boxes for all 7 categories on a single row */}
+      {/* Category Counters */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 mt-4">
-        {['strategic', 'governance', 'financial', 'technology', 'operational', 'external', 'other'].map(cat => {
+        {CATEGORIES.map(cat => {
           const meta = CATEGORY_META[cat]!;
           const count = summary?.categoryBreakdown?.[cat] ?? 0;
           return (
@@ -557,7 +553,7 @@ export default function NewsPage() {
                 onChange={event => setKeyword(event.target.value)}
                 onKeyDown={event => { if (event.key === 'Enter') applySearch(); }}
                 placeholder="e.g. MTN, cedi, NCA, data prices…"
-                className="w-full bg-transparent py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50"
+                className="w-full bg-transparent py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none"
               />
             </span>
           </label>
@@ -565,14 +561,14 @@ export default function NewsPage() {
             <span className="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">From date</span>
             <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 focus-within:border-mtn-yellow/40">
               <CalendarDays className="h-4 w-4 text-on-surface-variant" />
-              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={event => setDateFrom(event.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark]" />
+              <input type="date" value={dateFrom} max={dateTo || undefined} onChange={event => setDateFrom(event.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark] focus:outline-none" />
             </span>
           </label>
           <label className="space-y-1.5">
             <span className="text-[10px] font-mono uppercase tracking-widest text-on-surface-variant">To date</span>
             <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-3 focus-within:border-mtn-yellow/40">
               <CalendarDays className="h-4 w-4 text-on-surface-variant" />
-              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={event => setDateTo(event.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark]" />
+              <input type="date" value={dateTo} min={dateFrom || undefined} onChange={event => setDateTo(event.target.value)} className="bg-transparent py-2.5 text-xs text-on-surface [color-scheme:dark] focus:outline-none" />
             </span>
           </label>
           <div className="flex gap-2">
@@ -590,7 +586,7 @@ export default function NewsPage() {
         )}
       </div>
 
-      {/* ── Layer 1: High-Level Categories ── */}
+      {/* Risk Categories (Layer 1) */}
       <div className="space-y-2 animate-in fade-in duration-200">
         <p className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant">Risk Categories (Layer 1)</p>
         <div className="flex flex-wrap gap-2">
@@ -622,7 +618,7 @@ export default function NewsPage() {
         </div>
       </div>
 
-      {/* ── Layer 2: Subcategories (Clean Names) ── */}
+      {/* Subcategories (Layer 2) */}
       {activeCategory && SUBCATEGORIES[activeCategory] && (
         <div className="space-y-2 p-3 rounded-xl bg-white/[0.01] border border-white/5 animate-in slide-in-from-top-1 duration-250">
           <p className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant">
@@ -664,7 +660,7 @@ export default function NewsPage() {
         </div>
       )}
 
-      {/* Articles */}
+      {/* Article List */}
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonBlock key={i} className="h-20" />)}

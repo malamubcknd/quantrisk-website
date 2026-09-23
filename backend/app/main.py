@@ -1,4 +1,105 @@
+# from __future__ import annotations
+# import logging
+# import os
+# from contextlib import asynccontextmanager
+# from datetime import datetime, timezone
+
+# from fastapi import Depends, FastAPI
+# from fastapi.middleware.cors import CORSMiddleware
+
+# from .api.routes import router
+# from .api.auth import router as auth_router
+# from .core.security import get_current_user
+
+# logger = logging.getLogger(__name__)
+# logging.basicConfig(level=logging.INFO)
+
+
+# def get_scrape_interval_minutes() -> int:
+#     interval = int(os.getenv("SCRAPE_INTERVAL_MINUTES", "15"))
+#     if interval < 1:
+#         raise ValueError("SCRAPE_INTERVAL_MINUTES must be at least 1")
+#     return interval
+
+
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     logger.info("Starting MTN QuantRisk API...")
+#     try:
+#         from .models.database import init_db
+#         init_db()
+#         logger.info("SQLite tables ready")
+#     except Exception as exc:
+#         logger.error("DB init failed: %s", exc)
+
+#     try:
+#         from apscheduler.schedulers.background import BackgroundScheduler
+#         from .services.scraper_service import run_scrape_and_store
+
+#         scrape_interval = get_scrape_interval_minutes()
+#         scheduler = BackgroundScheduler()
+#         scheduler.add_job(
+#             run_scrape_and_store,
+#             "interval",
+#             minutes=scrape_interval,
+#             id="rss_scraper",
+#             replace_existing=True,
+#             coalesce=True,
+#             max_instances=1,
+#             misfire_grace_time=scrape_interval * 60,
+#             next_run_time=datetime.now(timezone.utc),
+#         )
+#         scheduler.start()
+#         app.state.scheduler = scheduler
+#         logger.info("APScheduler started — scraping every %d minutes", scrape_interval)
+#     except Exception as exc:
+#         logger.warning("APScheduler not started (non-fatal): %s", exc)
+
+#     yield
+
+#     if hasattr(app.state, "scheduler"):
+#         app.state.scheduler.shutdown(wait=False)
+#         logger.info("APScheduler stopped")
+
+
+
+
+# app = FastAPI(
+#     title="MTN QuantRisk API",
+#     description="AI-powered quantitative risk intelligence for MTN Ghana",
+#     version="2.1.0",
+#     lifespan=lifespan,
+# )
+
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         "http://localhost:3000",
+#         "http://localhost:3001",
+#         "http://localhost:3002",
+#         "http://127.0.0.1:3000",
+#         "http://127.0.0.1:3001",
+#         "http://127.0.0.1:3002",
+#     ],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# app.include_router(auth_router)
+# app.include_router(router, dependencies=[Depends(get_current_user)])
+
+
+# @app.get("/")
+# def root():
+#     return {"status": "ok", "service": "MTN QuantRisk API", "version": "2.1.0"}
+
+
+
+
+
 from __future__ import annotations
+
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -25,19 +126,38 @@ def get_scrape_interval_minutes() -> int:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting MTN QuantRisk API...")
+
     try:
         from .models.database import init_db
+
         init_db()
         logger.info("SQLite tables ready")
     except Exception as exc:
         logger.error("DB init failed: %s", exc)
 
     try:
+        from .services.aisummarizer_service import (
+            backfill_missing_summaries_async,
+        )
+
+        # Trigger background summary backfill for any existing
+        # articles without summaries
+        backfill_missing_summaries_async()
+        logger.info("Summary backfill started")
+    except Exception as exc:
+        logger.warning(
+            "Summary backfill failed (non-fatal): %s",
+            exc,
+        )
+
+    try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from .services.scraper_service import run_scrape_and_store
 
         scrape_interval = get_scrape_interval_minutes()
+
         scheduler = BackgroundScheduler()
+
         scheduler.add_job(
             run_scrape_and_store,
             "interval",
@@ -49,11 +169,20 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=scrape_interval * 60,
             next_run_time=datetime.now(timezone.utc),
         )
+
         scheduler.start()
         app.state.scheduler = scheduler
-        logger.info("APScheduler started — scraping every %d minutes", scrape_interval)
+
+        logger.info(
+            "APScheduler started — scraping every %d minutes",
+            scrape_interval,
+        )
+
     except Exception as exc:
-        logger.warning("APScheduler not started (non-fatal): %s", exc)
+        logger.warning(
+            "APScheduler not started (non-fatal): %s",
+            exc,
+        )
 
     yield
 
@@ -68,6 +197,7 @@ app = FastAPI(
     version="2.1.0",
     lifespan=lifespan,
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -84,10 +214,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 app.include_router(auth_router)
-app.include_router(router, dependencies=[Depends(get_current_user)])
+app.include_router(
+    router,
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @app.get("/")
 def root():
-    return {"status": "ok", "service": "MTN QuantRisk API", "version": "2.1.0"}
+    return {
+        "status": "ok",
+        "service": "MTN QuantRisk API",
+        "version": "2.1.0",
+    }

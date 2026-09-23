@@ -152,3 +152,35 @@ def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
         "acknowledgedAt": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
         "createdAt":      alert.created_at.isoformat() if alert.created_at else None,
     }
+
+
+
+
+from .aisummarizer_service import generate_ai_summary
+
+def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
+    body = article.body if article else ""
+    summary = generate_ai_summary(
+        title=alert.headline, 
+        body=body, 
+        category=alert.category, 
+        mtn_relevance=alert.mtn_relevance
+    )
+
+    return {
+        "id":             alert.id,
+        "articleId":      alert.article_id,
+        "articleUrl":     article.url if article else None,
+        "summary":        summary,  # ← NEW: AI Summary attached
+        "tier":           alert.tier,
+        "category":       alert.category,
+        "subcategory":    alert.subcategory,
+        "headline":       alert.headline,
+        "sourceName":     alert.source_name,
+        "severity":       alert.severity,
+        "impactGhsMid":   alert.impact_ghs_mid,
+        "mtnRelevance":   alert.mtn_relevance,
+        "acknowledged":   alert.acknowledged,
+        "acknowledgedAt": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+        "createdAt":      alert.created_at.isoformat() if alert.created_at else None,
+    }

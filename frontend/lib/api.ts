@@ -218,6 +218,7 @@ export interface NewsArticle {
   id: string;
   url: string;
   title: string;
+  summary?: string | null;  // AI Summary
   body?: string;
   sourceName: string | null;
   publishedAt: string | null;
@@ -291,6 +292,7 @@ export interface NewsAlert {
   id: string;
   articleId: string;
   articleUrl: string | null; 
+  summary?: string | null;  // AI Summary
   tier: 'Critical' | 'Warning' | 'Watch';
   category: string;
   subcategory: string | null;
@@ -428,8 +430,6 @@ export interface IntelligenceSummary {
 export async function fetchIntelligenceSummary(): Promise<IntelligenceSummary> {
   return apiFetch<IntelligenceSummary>('/api/intelligence/summary');
 }
-
-// ── Current Logged-In User ─────────────────────────────────────────────────────
 
 // ── Current Logged-In User ─────────────────────────────────────────────────────
 
