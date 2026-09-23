@@ -218,16 +218,45 @@ def get_current_user(
 _USERS: dict[str, dict[str, str]] = {}
 
 
+# In backend/app/core/security.py
+
 def _seed_default_user() -> None:
-    """Seed the default analyst user if no users exist yet."""
+    """Seed users with different roles for testing."""
     if _USERS:
         return
-    email = os.environ.get("AUTH_EMAIL", "analyst@mtn.com")
-    password = os.environ.get("AUTH_PASSWORD", "Pass.word.123")
-    _USERS[email.lower()] = {
-        "password_hash": hash_password(password),
-        "role": "analyst",
+    
+    default_pwd = os.environ.get("AUTH_PASSWORD", "Pass.word.123")
+    pwd_hash = hash_password(default_pwd)
+    
+    _USERS["admin@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "admin",
+        "name": "System Admin",
+    }
+    _USERS["finance@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "finance",
+        "name": "Finance Director",
+    }
+    _USERS["risk@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "risk",
         "name": "Risk Analyst",
+    }
+    _USERS["executive@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "executive",
+        "name": "Board Member",
+    }
+    _USERS["marketing@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "marketing",
+        "name": "Marketing Lead",
+    }
+    _USERS["analyst@mtn.com"] = {
+        "password_hash": pwd_hash,
+        "role": "analyst",
+        "name": "Compliance Analyst",
     }
 
 

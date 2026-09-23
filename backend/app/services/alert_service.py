@@ -56,6 +56,7 @@
 #         "articleId":      alert.article_id,
 #         "tier":           alert.tier,
 #         "category":       alert.category,
+#         "subcategory":    alert.subcategory,
 #         "headline":       alert.headline,
 #         "sourceName":     alert.source_name,
 #         "severity":       alert.severity,
@@ -67,9 +68,12 @@
 #     }
 
 
+
+
 from __future__ import annotations
 """
 Alert CRUD — list, acknowledge, and summary helpers.
+Includes articleUrl so the frontend can deep-link to the source article.
 """
 
 from datetime import datetime, timezone
@@ -86,15 +90,24 @@ def list_alerts(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
-    query = db.query(Alert).join(Article, Alert.article_id == Article.id)
+    query = (
+        db.query(Alert, Article)
+        .join(Article, Alert.article_id == Article.id)
+    )
 
     if tier:
         query = query.filter(Alert.tier == tier)
     if acknowledged is not None:
         query = query.filter(Alert.acknowledged == acknowledged)
 
-    alerts = query.order_by(Alert.created_at.desc()).offset(offset).limit(limit).all()
-    return [_alert_to_dict(a) for a in alerts]
+    rows = (
+        query
+        .order_by(Alert.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [_alert_to_dict(alert, article) for alert, article in rows]
 
 
 def acknowledge_alert(db: Session, alert_id: str) -> dict | None:
@@ -105,7 +118,10 @@ def acknowledge_alert(db: Session, alert_id: str) -> dict | None:
     alert.acknowledged_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(alert)
-    return _alert_to_dict(alert)
+
+    # Fetch linked article for URL in response
+    article = db.get(Article, alert.article_id)
+    return _alert_to_dict(alert, article)
 
 
 def get_alert_summary(db: Session) -> dict:
@@ -119,10 +135,11 @@ def get_alert_summary(db: Session) -> dict:
     }
 
 
-def _alert_to_dict(alert: Alert) -> dict:
+def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
     return {
         "id":             alert.id,
         "articleId":      alert.article_id,
+        "articleUrl":     article.url if article else None,   # ← NEW: source article link
         "tier":           alert.tier,
         "category":       alert.category,
         "subcategory":    alert.subcategory,

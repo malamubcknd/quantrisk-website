@@ -77,3 +77,10 @@ Thumbs.db
 # =========================
 ACTION_PLAN.md
 AUDIT_REPORT.md
+
+
+# =========================
+# Large Files
+# =========================
+portable_node/
+portable_python/

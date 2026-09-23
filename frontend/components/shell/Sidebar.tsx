@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAppState } from '@/stores/useAppState';
+import { canAccessRoute } from '@/lib/auth';
 import {
   LayoutDashboard, List, Calendar, CalendarDays, LineChart,
   FileText, FlaskConical, GitCompare, ActivitySquare,
-  Settings, HelpCircle, Dices, Zap, Newspaper, Bell, TrendingUp, Brain, BriefcaseBusiness
+  Settings, HelpCircle, Dices, Zap, Newspaper, Bell, TrendingUp, Brain, BriefcaseBusiness, User as UserIcon
 } from 'lucide-react';
 
 interface NavItem {
@@ -41,11 +43,12 @@ const NAV_ITEMS: NavGroup[] = [
   {
     group: 'Advanced Modeling',
     items: [
-      { href: '/business-stress', label: 'Business Stress', icon: BriefcaseBusiness, badge: 'NEW' },
-      { href: '/scenarios',    label: 'Stress Tester',    icon: FlaskConical },
-      { href: '/compare',      label: 'Scenario Compare', icon: GitCompare },
-      { href: '/reverse',      label: 'Reverse Stress',   icon: ActivitySquare },
-      { href: '/monte-carlo',  label: 'Monte Carlo',      icon: Dices, badge: 'AI' },
+      { href: '/business-stress',  label: 'Business Stress',  icon: BriefcaseBusiness, badge: 'NEW' },
+      { href: '/scenarios',        label: 'Stress Tester',    icon: FlaskConical },
+      { href: '/scenario-automate',label: 'Scenario Automate',icon: FlaskConical },
+      { href: '/compare',          label: 'Scenario Compare', icon: GitCompare },
+      { href: '/reverse',          label: 'Reverse Stress',   icon: ActivitySquare },
+      { href: '/monte-carlo',      label: 'Monte Carlo',      icon: Dices, badge: 'AI' },
     ],
   },
   {
@@ -61,6 +64,18 @@ const NAV_ITEMS: NavGroup[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { state } = useAppState();
+  const user = state.currentUser;
+
+  // Filter groups and items based on current logged in user role
+  // If user is null (loading or unauthenticated), hide items instead of showing all
+  const filteredNavGroups = NAV_ITEMS.map(group => ({
+    ...group,
+    items: group.items.filter(item => {
+      if (!user) return false; // Hide items while user session is loading
+      return canAccessRoute(user.role, item.href);
+    })
+  })).filter(group => group.items.length > 0); // Hide empty category groups
 
   return (
     <aside className="w-64 h-full flex flex-col border-r border-white/5"
@@ -68,11 +83,9 @@ export function Sidebar() {
     >
       {/* ── Brand header ── */}
       <div className="relative overflow-hidden px-5 py-5 border-b border-white/5 sidebar-header-bg">
-        {/* Decorative yellow circle glow */}
         <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full opacity-10"
           style={{ background: 'radial-gradient(circle, #FFD000, transparent 70%)' }} />
 
-        {/* MTN dot + wordmark */}
         <div className="flex items-center gap-2.5 mb-1">
           <div className="w-7 h-7 rounded-lg gradient-mtn flex items-center justify-center shrink-0 glow-yellow-sm">
             <Zap className="w-4 h-4 text-black" strokeWidth={2.5} />
@@ -92,9 +105,8 @@ export function Sidebar() {
 
       {/* ── Nav ── */}
       <nav className="flex-1 overflow-y-auto py-3 custom-scrollbar">
-        {NAV_ITEMS.map((group, idx) => (
+        {filteredNavGroups.map((group, idx) => (
           <div key={idx} className="mb-1">
-            {/* Group label */}
             <div className="px-5 pt-4 pb-1.5">
               <span className="font-mono font-bold uppercase tracking-widest"
                 style={{ fontSize: '10px', color: 'rgba(160, 155, 176, 0.5)' }}>
@@ -171,10 +183,13 @@ export function Sidebar() {
 
       {/* ── Bottom utilities ── */}
       <div className="px-2 py-3 border-t space-y-0.5" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        {/* Settings & Help links filtered by role */}
         {[
           { href: '/help',     label: 'Help & Support', icon: HelpCircle },
           { href: '/settings', label: 'Settings',       icon: Settings },
-        ].map(({ href, label, icon: Icon }) => {
+        ]
+        .filter(item => user && canAccessRoute(user.role, item.href))
+        .map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href;
           return (
             <Link
@@ -206,10 +221,21 @@ export function Sidebar() {
           );
         })}
 
+        {/* User Info & Persona Badge */}
+        {user && (
+          <div className="pt-2.5 px-3 flex items-center justify-between border-t border-white/5 mt-2">
+            <div className="min-w-0 flex-1 mr-2">
+              <p className="text-xs font-bold text-white truncate">{user.name || user.email}</p>
+              <p className="text-[10px] font-mono text-mtn-yellow uppercase tracking-wider font-semibold">{user.role}</p>
+            </div>
+            <UserIcon className="w-4 h-4 text-white/40 shrink-0" />
+          </div>
+        )}
+
         {/* Version tag */}
         <div className="px-3 pt-2 flex items-center justify-between">
           <span className="font-mono" style={{ fontSize: '10px', color: 'rgba(160,155,176,0.35)' }}>
-            v1.0 · FY25
+            v1.0 · FY26
           </span>
           <span className="font-mono px-1.5 py-0.5 rounded"
             style={{ fontSize: '9px', color: 'rgba(255,208,0,0.5)', background: 'rgba(255,208,0,0.06)', border: '1px solid rgba(255,208,0,0.15)' }}>

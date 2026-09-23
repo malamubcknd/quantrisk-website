@@ -1,10 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { 
   KpiId, Scenario, ScenarioOutput, ReverseStressResult, 
   ForecastPoint, MonteCarloResult, BoardBrief, PipelineHealth 
 } from '@/lib/types';
+import { GlobalVariables, AllScenarioInputs } from '@/lib/scenarioAutomate/types';
+import { User } from '@/lib/auth';
+import { fetchCurrentUser } from '@/lib/api';
 
 export interface AppState {
   baseCase: Record<KpiId, number>;
@@ -21,6 +24,12 @@ export interface AppState {
   globalLoading: boolean;
   briefSlideover: { open: boolean; brief?: BoardBrief };
   activeForecastKpi: KpiId;
+  scenarioAutomateGlobals: GlobalVariables | null;
+  scenarioAutomateInputs: AllScenarioInputs | null;
+  
+  // Auth State
+  currentUser: User | null;
+  isAuthLoading: boolean;
 }
 
 const initialState: AppState = {
@@ -38,6 +47,11 @@ const initialState: AppState = {
   globalLoading: false,
   briefSlideover: { open: false },
   activeForecastKpi: 'FIN01',
+  scenarioAutomateGlobals: null,
+  scenarioAutomateInputs: null,
+  
+  currentUser: null,
+  isAuthLoading: true,
 };
 
 type Action =
@@ -55,7 +69,11 @@ type Action =
   | { type: 'SET_REVERSE_STRESS_RESULT'; payload: ReverseStressResult }
   | { type: 'OPEN_BRIEF_SLIDEOVER'; payload: { brief: BoardBrief } }
   | { type: 'CLOSE_BRIEF_SLIDEOVER' }
-  | { type: 'SET_ACTIVE_FORECAST_KPI'; payload: KpiId };
+  | { type: 'SET_ACTIVE_FORECAST_KPI'; payload: KpiId }
+  | { type: 'SET_SA_GLOBALS'; payload: GlobalVariables | null }
+  | { type: 'SET_SA_INPUTS'; payload: AllScenarioInputs | null }
+  | { type: 'SET_CURRENT_USER'; payload: User | null }
+  | { type: 'SET_AUTH_LOADING'; payload: boolean };
 
 function appReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -74,6 +92,10 @@ function appReducer(state: AppState, action: Action): AppState {
     case 'OPEN_BRIEF_SLIDEOVER': return { ...state, briefSlideover: { open: true, brief: action.payload.brief } };
     case 'CLOSE_BRIEF_SLIDEOVER': return { ...state, briefSlideover: { open: false, brief: state.briefSlideover.brief } };
     case 'SET_ACTIVE_FORECAST_KPI': return { ...state, activeForecastKpi: action.payload };
+    case 'SET_SA_GLOBALS': return { ...state, scenarioAutomateGlobals: action.payload };
+    case 'SET_SA_INPUTS': return { ...state, scenarioAutomateInputs: action.payload };
+    case 'SET_CURRENT_USER': return { ...state, currentUser: action.payload };
+    case 'SET_AUTH_LOADING': return { ...state, isAuthLoading: action.payload };
     default: return state;
   }
 }
@@ -82,6 +104,36 @@ const AppStateContext = createContext<{ state: AppState; dispatch: React.Dispatc
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+
+  // Check auth status from FastAPI backend on load
+  useEffect(() => {
+    let isMounted = true;
+
+    async function checkAuth() {
+      dispatch({ type: 'SET_AUTH_LOADING', payload: true });
+      try {
+        const user = await fetchCurrentUser();
+        if (isMounted) {
+          dispatch({ type: 'SET_CURRENT_USER', payload: user });
+        }
+      } catch {
+        if (isMounted) {
+          dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        }
+      } finally {
+        if (isMounted) {
+          dispatch({ type: 'SET_AUTH_LOADING', payload: false });
+        }
+      }
+    }
+
+    checkAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
     <AppStateContext.Provider value={{ state, dispatch }}>
       {children}
