@@ -342,13 +342,12 @@
 
 
 
-
 """
 ================================================================================
 MTN QuantRisk - EMAIL SERVICE
 ================================================================================
-Handles Outlook COM automation (Windows) and browser preview (Mac).
-Automatically uses the active Outlook desktop profile without storing passwords.
+Dark-themed HTML emails matching the QuantRisk dashboard.
+Outlook color transparency rendering issues have been solved using solid hex keys.
 ================================================================================
 """
 from __future__ import annotations
@@ -370,7 +369,6 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 # ── Outlook Connection (Windows only) ─────────────────────────────────────────
 
 def _get_outlook():
-    """Return an initialized Outlook Application object."""
     try:
         import win32com.client as win32
         return win32.Dispatch("Outlook.Application")
@@ -409,58 +407,58 @@ def mark_sent(log_path: str, record_ids: Iterable[str], recipients: str) -> None
             writer.writerow([rid, ts, recipients])
 
 
-# ── Dark Theme CSS ────────────────────────────────────────────────────────────
+# ── Dark Theme CSS (Solid Hex equivalents for Outlook Desktop Compatibility) ──
 
 _EMAIL_CSS = """
 <style>
   body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #e0ddd8; background: #0a0a14; margin: 0; padding: 20px; }
-  .container { max-width: 720px; margin: 0 auto; background: #12121e; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.07); }
-  .header-news { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 28px 32px; border-bottom: 2px solid #FFD000; }
-  .header-alert { background: linear-gradient(135deg, #1a0a0a 0%, #2d1010 100%); padding: 28px 32px; border-bottom: 2px solid #ef4444; }
+  .container { max-width: 720px; margin: 0 auto; background: #12121e; border-radius: 16px; overflow: hidden; border: 1px solid #232338; }
+  .header-news { background: linear-gradient(135deg, #16162a 0%, #1e1e38 100%); padding: 28px 32px; border-bottom: 2px solid #FFD000; }
+  .header-alert { background: linear-gradient(135deg, #1d0f0f 0%, #2d1414 100%); padding: 28px 32px; border-bottom: 2px solid #ef4444; }
   .header h1 { margin: 0; font-size: 20px; font-weight: 700; color: #FFD000; letter-spacing: -0.3px; }
   .header-alert h1 { color: #ef4444; }
-  .header .subtitle { margin: 6px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.45); font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; }
+  .header .subtitle { margin: 6px 0 0 0; font-size: 12px; color: #88889a; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; }
   .content { padding: 28px 32px; }
-  .article { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
+  .article { background: #181826; border: 1px solid #2c2c3e; border-radius: 12px; padding: 18px; margin-bottom: 14px; }
   .article-title { font-size: 14px; font-weight: 600; color: #ffffff; margin: 0 0 8px 0; line-height: 1.45; }
   .article-title a { color: #FFD000; text-decoration: none; }
   .article-title a:hover { text-decoration: underline; }
-  .article-meta { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 10px; font-family: 'Courier New', monospace; }
+  .article-meta { font-size: 11px; color: #7b7b8f; margin-bottom: 10px; font-family: 'Courier New', monospace; }
   .article-meta span { margin-right: 12px; }
-  .summary-box { background: rgba(255,208,0,0.05); border-left: 3px solid rgba(255,208,0,0.4); border-radius: 0 8px 8px 0; padding: 12px 14px; margin: 10px 0; }
+  .summary-box { background: #221c05; border-left: 3px solid #b59300; border-radius: 0 8px 8px 0; padding: 12px 14px; margin: 10px 0; }
   .summary-label { font-size: 10px; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; color: #FFD000; margin-bottom: 4px; font-weight: 700; }
-  .summary-text { font-size: 12px; color: rgba(255,255,255,0.75); line-height: 1.6; }
+  .summary-text { font-size: 12px; color: #d4d0c8; line-height: 1.6; }
   .badges { margin-top: 10px; }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; margin-right: 5px; margin-bottom: 5px; font-family: 'Courier New', monospace; }
   
   /* Alert Tiers */
-  .badge-critical { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-  .badge-warning  { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
-  .badge-watch    { background: rgba(250,204,21,0.15); color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
+  .badge-critical { background: #2d1414; color: #ef4444; border: 1px solid #5a2020; }
+  .badge-warning  { background: #331a0a; color: #f97316; border: 1px solid #663310; }
+  .badge-watch    { background: #2a2405; color: #facc15; border: 1px solid #544503; }
   
   /* Category Styling */
-  .badge-strategic    { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
-  .badge-governance   { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
-  .badge-financial    { background: rgba(250,204,21,0.15);  color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
-  .badge-technology   { background: rgba(96,165,250,0.15);  color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
-  .badge-operational  { background: rgba(251,146,60,0.15);  color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
-  .badge-external     { background: rgba(244,114,182,0.15);  color: #f472b6; border: 1px solid rgba(244,114,182,0.3); }
-  .badge-other        { background: rgba(156,163,175,0.15);  color: #9ca3af; border: 1px solid rgba(156,163,175,0.3); }
+  .badge-strategic    { background: #2d1414; color: #f87171; border: 1px solid #5a1c1c; }
+  .badge-governance   { background: #1b1e26; color: #94a3b8; border: 1px solid #333a4a; }
+  .badge-financial    { background: #2a2405; color: #facc15; border: 1px solid #544503; }
+  .badge-technology   { background: #0c1c38; color: #60a5fa; border: 1px solid #1a3870; }
+  .badge-operational  { background: #2e1b0a; color: #fb923c; border: 1px solid #5a3210; }
+  .badge-external     { background: #2d1020; color: #f472b6; border: 1px solid #5a1a3d; }
+  .badge-other        { background: #1f2124; color: #9ca3af; border: 1px solid #3c3f45; }
 
   /* Subcategory & Stats */
-  .badge-subcat       { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.12); }
-  .badge-severity     { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.1); }
-  .badge-relevance    { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+  .badge-subcat       { background: #1f1f2e; color: #b0b0c5; border: 1px solid #33334d; }
+  .badge-severity     { background: #212130; color: #9c9cb0; border: 1px solid #38384d; }
+  .badge-relevance    { background: #0c1c38; color: #60a5fa; border: 1px solid #1a3870; }
 
   /* Sentiments */
-  .badge-sent-negative { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-  .badge-sent-neutral  { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
-  .badge-sent-positive { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+  .badge-sent-negative { background: #2d1414; color: #ef4444; border: 1px solid #5a2020; }
+  .badge-sent-neutral  { background: #1b1e26; color: #94a3b8; border: 1px solid #333a4a; }
+  .badge-sent-positive { background: #052410; color: #22c55e; border: 1px solid #104c20; }
 
-  .read-more { display: inline-block; margin-top: 10px; padding: 7px 16px; background: rgba(255,208,0,0.1); border: 1px solid rgba(255,208,0,0.3); border-radius: 8px; color: #FFD000; font-size: 11px; font-weight: 600; text-decoration: none; font-family: 'Courier New', monospace; }
-  .read-more:hover { background: rgba(255,208,0,0.2); }
-  .footer { background: rgba(255,255,255,0.02); padding: 18px 32px; font-size: 11px; color: rgba(255,255,255,0.3); text-align: center; border-top: 1px solid rgba(255,255,255,0.06); font-family: 'Courier New', monospace; }
-  .no-items { padding: 40px; text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; }
+  .read-more { display: inline-block; margin-top: 10px; padding: 7px 16px; background: #2a2405; border: 1px solid #b59300; border-radius: 8px; color: #FFD000; font-size: 11px; font-weight: 600; text-decoration: none; font-family: 'Courier New', monospace; }
+  .read-more:hover { background: #3f3507; }
+  .footer { background: #10101c; padding: 18px 32px; font-size: 11px; color: #5a5a73; text-align: center; border-top: 1px solid #232338; font-family: 'Courier New', monospace; }
+  .no-items { padding: 40px; text-align: center; color: #5a5a73; font-size: 13px; }
 </style>
 """
 
@@ -560,7 +558,7 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
       <body>
         <div class="container">
           <div class="header-news header">
-            <h1>📡 {category_label} Risk — Daily Intelligence Briefing</h1>
+            <h1>📡 {category_label} - Daily Intelligence Briefing</h1>
             <div class="subtitle">MTN QuantRisk · {now}</div>
           </div>
           <div class="content">
@@ -653,7 +651,7 @@ def preview_email(subject: str, html_body: str) -> str:
 
 
 def send_email(subject: str, html_body: str, to: list[str], cc: list[str] | None = None, preview: bool = False) -> bool:
-    from ..config.email_config import SEND_EMAILS, VERBOSE
+    from ..config.email_config import SEND_EMAILS, VERBOSE, SENDER_EMAIL
 
     if preview:
         preview_email(subject, html_body)
@@ -676,6 +674,21 @@ def send_email(subject: str, html_body: str, to: list[str], cc: list[str] | None
         mail.To = ";".join(to)
         if cc:
             mail.CC = ";".join(cc)
+
+        # ── EXPLICIT SENDER ACCOUNT OPTIMIZATION ──
+        if SENDER_EMAIL and SENDER_EMAIL.strip():
+            matched_account = None
+            for account in outlook.Session.Accounts:
+                if account.SmtpAddress.lower() == SENDER_EMAIL.strip().lower():
+                    matched_account = account
+                    break
+            
+            if matched_account:
+                mail.SendUsingAccount = matched_account
+                if VERBOSE:
+                    logger.info(f"[OUTLOOK] Forcing sender account: {matched_account.SmtpAddress}")
+            else:
+                logger.warning(f"[OUTLOOK] Could not find account matching SENDER_EMAIL: {SENDER_EMAIL}. Using default profile.")
 
         mail.Send()
         if VERBOSE:

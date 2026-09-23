@@ -380,3 +380,32 @@ def run_scrape_and_store() -> int:
             _SCRAPER_STATUS["lastNewArticleAt"] = completed_at
     logger.info("Scrape complete — %d new articles stored", new_count)
     return new_count
+
+
+# ── Direct Execution Support (For Manual Terminal Runs) ──────────────────────
+if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    
+    # Configure logging so console shows all actions during manual run
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    
+    print("\n" + "="*80)
+    print("MTN QUANTRISK - DIRECT SCRAPER RUN")
+    print("="*80)
+    print("Initializing Database Connection...")
+    
+    # Set backend parent directory to path so imports resolve cleanly
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    
+    print("Launching scraper pipeline...")
+    new_articles = run_scrape_and_store()
+    
+    print("\n" + "="*80)
+    print(f"SCRAPE RUN DIAGNOSTIC COMPLETE")
+    print(f" -> Total New Articles Added & Processed: {new_articles}")
+    print("="*80 + "\n")

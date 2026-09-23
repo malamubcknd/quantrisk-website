@@ -99,7 +99,14 @@ def main():
 
         critical = sum(1 for a in alerts if a["tier"] == "Critical")
         warning  = sum(1 for a in alerts if a["tier"] == "Warning")
-        subject = EMAIL_SUBJECT_ALERT.format(critical=critical, warning=warning)
+        
+        # Pull category for first alert as context
+        primary_cat = alerts[0]["category"].capitalize() if alerts else "Risk"
+        subject = EMAIL_SUBJECT_ALERT.format(
+            category=primary_cat, 
+            critical=critical, 
+            warning=warning
+        )
 
         html = render_alert_html(alerts)
         success = send_email(subject, html, to=to, cc=cc, preview=args.preview)
