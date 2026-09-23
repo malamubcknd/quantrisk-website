@@ -1,353 +1,9 @@
-# """
-# ================================================================================
-# MTN QuantRisk - EMAIL SERVICE
-# ================================================================================
-# Dark-themed HTML emails matching the QuantRisk dashboard.
-# Includes category, subcategory, and sentiment badges matching the website's UI.
-# ================================================================================
-# """
-# from __future__ import annotations
-
-# import csv
-# import os
-# import logging
-# import tempfile
-# import webbrowser
-# from datetime import datetime, timezone
-# from pathlib import Path
-# from typing import Iterable
-
-# logger = logging.getLogger(__name__)
-
-# BACKEND_ROOT = Path(__file__).resolve().parents[2]
-
-
-# # ── Outlook Connection (Windows only) ─────────────────────────────────────────
-
-# def _get_outlook():
-#     try:
-#         import win32com.client as win32
-#         return win32.Dispatch("Outlook.Application")
-#     except ImportError:
-#         raise RuntimeError("pywin32 not installed. Run: pip install pywin32")
-#     except Exception as e:
-#         raise RuntimeError(f"Failed to initialize Outlook: {e}")
-
-
-# # ── Sent Tracking ─────────────────────────────────────────────────────────────
-
-# def load_sent_ids(log_path: str) -> set[str]:
-#     full_path = BACKEND_ROOT / log_path
-#     if not full_path.exists():
-#         return set()
-#     ids = set()
-#     with full_path.open("r", encoding="utf-8", newline="") as f:
-#         reader = csv.reader(f)
-#         next(reader, None)
-#         for row in reader:
-#             if row:
-#                 ids.add(row[0])
-#     return ids
-
-
-# def mark_sent(log_path: str, record_ids: Iterable[str], recipients: str) -> None:
-#     full_path = BACKEND_ROOT / log_path
-#     full_path.parent.mkdir(parents=True, exist_ok=True)
-#     is_new = not full_path.exists()
-#     with full_path.open("a", encoding="utf-8", newline="") as f:
-#         writer = csv.writer(f)
-#         if is_new:
-#             writer.writerow(["record_id", "sent_at_utc", "recipients"])
-#         ts = datetime.now(timezone.utc).isoformat()
-#         for rid in record_ids:
-#             writer.writerow([rid, ts, recipients])
-
-
-# # ── Dark Theme CSS ────────────────────────────────────────────────────────────
-
-# _EMAIL_CSS = """
-# <style>
-#   body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #e0ddd8; background: #0a0a14; margin: 0; padding: 20px; }
-#   .container { max-width: 720px; margin: 0 auto; background: #12121e; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.07); }
-#   .header-news { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 28px 32px; border-bottom: 2px solid #FFD000; }
-#   .header-alert { background: linear-gradient(135deg, #1a0a0a 0%, #2d1010 100%); padding: 28px 32px; border-bottom: 2px solid #ef4444; }
-#   .header h1 { margin: 0; font-size: 20px; font-weight: 700; color: #FFD000; letter-spacing: -0.3px; }
-#   .header-alert h1 { color: #ef4444; }
-#   .header .subtitle { margin: 6px 0 0 0; font-size: 12px; color: rgba(255,255,255,0.45); font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; }
-#   .content { padding: 28px 32px; }
-#   .article { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 18px; margin-bottom: 14px; }
-#   .article-title { font-size: 14px; font-weight: 600; color: #ffffff; margin: 0 0 8px 0; line-height: 1.45; }
-#   .article-title a { color: #FFD000; text-decoration: none; }
-#   .article-title a:hover { text-decoration: underline; }
-#   .article-meta { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 10px; font-family: 'Courier New', monospace; }
-#   .article-meta span { margin-right: 12px; }
-#   .summary-box { background: rgba(255,208,0,0.05); border-left: 3px solid rgba(255,208,0,0.4); border-radius: 0 8px 8px 0; padding: 12px 14px; margin: 10px 0; }
-#   .summary-label { font-size: 10px; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; color: #FFD000; margin-bottom: 4px; font-weight: 700; }
-#   .summary-text { font-size: 12px; color: rgba(255,255,255,0.75); line-height: 1.6; }
-#   .badges { margin-top: 10px; }
-#   .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; margin-right: 5px; margin-bottom: 5px; font-family: 'Courier New', monospace; }
-  
-#   /* Alert Tiers */
-#   .badge-critical { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-#   .badge-warning  { background: rgba(249,115,22,0.15); color: #f97316; border: 1px solid rgba(249,115,22,0.3); }
-#   .badge-watch    { background: rgba(250,204,21,0.15); color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
-  
-#   /* Category Styling */
-#   .badge-strategic    { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
-#   .badge-governance   { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
-#   .badge-financial    { background: rgba(250,204,21,0.15);  color: #facc15; border: 1px solid rgba(250,204,21,0.3); }
-#   .badge-technology   { background: rgba(96,165,250,0.15);  color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
-#   .badge-operational  { background: rgba(251,146,60,0.15);  color: #fb923c; border: 1px solid rgba(251,146,60,0.3); }
-#   .badge-external     { background: rgba(244,114,182,0.15);  color: #f472b6; border: 1px solid rgba(244,114,182,0.3); }
-#   .badge-other        { background: rgba(156,163,175,0.15);  color: #9ca3af; border: 1px solid rgba(156,163,175,0.3); }
-
-#   /* Subcategory & Stats */
-#   .badge-subcat       { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.12); }
-#   .badge-severity     { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.1); }
-#   .badge-relevance    { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
-
-#   /* Sentiments */
-#   .badge-sent-negative { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-#   .badge-sent-neutral  { background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); }
-#   .badge-sent-positive { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
-
-#   .read-more { display: inline-block; margin-top: 10px; padding: 7px 16px; background: rgba(255,208,0,0.1); border: 1px solid rgba(255,208,0,0.3); border-radius: 8px; color: #FFD000; font-size: 11px; font-weight: 600; text-decoration: none; font-family: 'Courier New', monospace; }
-#   .read-more:hover { background: rgba(255,208,0,0.2); }
-#   .footer { background: rgba(255,255,255,0.02); padding: 18px 32px; font-size: 11px; color: rgba(255,255,255,0.3); text-align: center; border-top: 1px solid rgba(255,255,255,0.06); font-family: 'Courier New', monospace; }
-#   .no-items { padding: 40px; text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; }
-# </style>
-# """
-
-
-# def _tier_badge(tier: str | None) -> str:
-#     if not tier:
-#         return ""
-#     return f'<span class="badge badge-{tier.lower()}">{tier.upper()}</span>'
-
-
-# def _relevance_badge(relevance: float | None) -> str:
-#     if relevance is None:
-#         return ""
-#     return f'<span class="badge badge-relevance">MTN {int(relevance * 100)}%</span>'
-
-
-# def _severity_badge(severity: float | None) -> str:
-#     if severity is None:
-#         return ""
-#     return f'<span class="badge badge-severity">Severity {severity:.1f}/10</span>'
-
-
-# def _category_badge(category: str | None) -> str:
-#     if not category:
-#         return ""
-#     cat = category.lower().strip()
-#     return f'<span class="badge badge-{cat}">{cat.capitalize()}</span>'
-
-
-# def _subcategory_badge(subcategory: str | None) -> str:
-#     if not subcategory:
-#         return ""
-#     clean_sub = subcategory.replace(r"^\d+\s*-\s*", "").strip()
-#     if not clean_sub or clean_sub.lower() == "other":
-#         return ""
-#     return f'<span class="badge badge-subcat">{clean_sub}</span>'
-
-
-# def _sentiment_badge(sentiment: str | None) -> str:
-#     if not sentiment:
-#         return ""
-#     sent = sentiment.lower().strip()
-#     return f'<span class="badge badge-sent-{sent}">{sent.capitalize()}</span>'
-
-
-# def _fmt_datetime(iso: str | None) -> str:
-#     if not iso:
-#         return "—"
-#     try:
-#         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-#         return dt.strftime("%d %b %Y · %H:%M GMT")
-#     except Exception:
-#         return iso
-
-
-# # ── NEWS DIGEST HTML ──────────────────────────────────────────────────────────
-
-# def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
-#     now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
-
-#     if not articles:
-#         articles_html = '<div class="no-items">No new high-relevance articles in this category today.</div>'
-#     else:
-#         parts = []
-#         for i, a in enumerate(articles, 1):
-#             summary = a.get("summary") or "Summary not available"
-#             parts.append(f"""
-#             <div class="article">
-#               <div class="article-title">
-#                 <a href="{a.get('url', '#')}">{i}. {a.get('title', 'Untitled')}</a>
-#               </div>
-#               <div class="article-meta">
-#                 <span>{a.get('source_name') or 'Unknown'}</span>
-#                 <span>·</span>
-#                 <span>{_fmt_datetime(a.get('published_at'))}</span>
-#               </div>
-#               <div class="summary-box">
-#                 <div class="summary-label">🧠 AI Risk Summary & MTN Impact</div>
-#                 <div class="summary-text">{summary}</div>
-#               </div>
-#               <div class="badges">
-#                 {_tier_badge(a.get('alert_tier'))}
-#                 {_category_badge(a.get('category'))}
-#                 {_subcategory_badge(a.get('subcategory'))}
-#                 {_sentiment_badge(a.get('sentiment'))}
-#                 {_relevance_badge(a.get('mtn_relevance'))}
-#                 {_severity_badge(a.get('severity'))}
-#               </div>
-#               <a href="{a.get('url', '#')}" class="read-more" target="_blank">→ Read Full Article</a>
-#             </div>
-#             """)
-#         articles_html = "".join(parts)
-
-#     return f"""
-#     <html>
-#       <head>{_EMAIL_CSS}</head>
-#       <body>
-#         <div class="container">
-#           <div class="header-news header">
-#             <h1>📡 {category_label} Risk — Daily Intelligence Briefing</h1>
-#             <div class="subtitle">MTN QuantRisk · {now}</div>
-#           </div>
-#           <div class="content">
-#             {articles_html}
-#           </div>
-#           <div class="footer">
-#             MTN QuantRisk Automated Intelligence · {category_label} Department Distribution List<br>
-#             To update your preferences, contact the QuantRisk admin team.
-#           </div>
-#         </div>
-#       </body>
-#     </html>
-#     """
-
-
-# # ── ALERT NOTIFICATION HTML ───────────────────────────────────────────────────
-
-# def render_alert_html(alerts: list[dict]) -> str:
-#     now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
-
-#     if not alerts:
-#         alerts_html = '<div class="no-items">No new alerts at this time.</div>'
-#     else:
-#         parts = []
-#         for a in alerts:
-#             impact = a.get("impact_ghs_mid")
-#             impact_str = f"GHS {impact:.1f}m" if impact else "—"
-#             summary = a.get("summary") or "Summary not available"
-#             article_url = a.get("article_url") or "#"
-#             parts.append(f"""
-#             <div class="article" style="border-left: 3px solid {'#ef4444' if a.get('tier') == 'Critical' else '#f97316'};">
-#               <div class="article-title">
-#                 <a href="{article_url}">{a.get('headline', 'Untitled')}</a>
-#               </div>
-#               <div class="article-meta">
-#                 <span>{a.get('source_name') or 'Unknown'}</span>
-#                 <span>·</span>
-#                 <span>{_fmt_datetime(a.get('created_at'))}</span>
-#               </div>
-#               <div class="summary-box">
-#                 <div class="summary-label">🧠 AI Risk Summary & MTN Impact</div>
-#                 <div class="summary-text">{summary}</div>
-#               </div>
-#               <div class="badges">
-#                 {_tier_badge(a.get('tier'))}
-#                 {_category_badge(a.get('category'))}
-#                 {_subcategory_badge(a.get('subcategory'))}
-#                 {_sentiment_badge(a.get('sentiment'))}
-#                 {_relevance_badge(a.get('mtn_relevance'))}
-#                 {_severity_badge(a.get('severity'))}
-#                 <span class="badge badge-severity">Impact {impact_str}</span>
-#               </div>
-#               <a href="{article_url}" class="read-more" target="_blank">→ Read Full Article</a>
-#             </div>
-#             """)
-#         alerts_html = "".join(parts)
-
-#     return f"""
-#     <html>
-#       <head>{_EMAIL_CSS}</head>
-#       <body>
-#         <div class="container">
-#           <div class="header-alert header">
-#             <h1>🚨 Immediate Action Required — Risk Alert Notification</h1>
-#             <div class="subtitle" style="color: rgba(239,68,68,0.6);">MTN QuantRisk · {now}</div>
-#           </div>
-#           <div class="content">
-#             {alerts_html}
-#           </div>
-#           <div class="footer">
-#             MTN QuantRisk Automated Alert System · Please acknowledge on the platform.<br>
-#             To update your preferences, contact the QuantRisk admin team.
-#           </div>
-#         </div>
-#       </body>
-#     </html>
-#     """
-
-
-# # ── Send / Preview ────────────────────────────────────────────────────────────
-
-# def preview_email(subject: str, html_body: str) -> str:
-#     fd, path = tempfile.mkstemp(suffix=".html", prefix="mtn_quantrisk_")
-#     with os.fdopen(fd, "w", encoding="utf-8") as f:
-#         f.write(html_body)
-#     webbrowser.open(f"file://{path}")
-#     logger.info(f"[PREVIEW] Opened email in browser: {path}")
-#     logger.info(f"[PREVIEW] Subject: {subject}")
-#     return path
-
-
-# def send_email(subject: str, html_body: str, to: list[str], cc: list[str] | None = None, preview: bool = False) -> bool:
-#     from ..config.email_config import SEND_EMAILS, VERBOSE
-
-#     if preview:
-#         preview_email(subject, html_body)
-#         return True
-
-#     if not SEND_EMAILS:
-#         if VERBOSE:
-#             logger.info(f"[DRY RUN] Subject: {subject}")
-#             logger.info(f"  To: {', '.join(to)}")
-#             if cc:
-#                 logger.info(f"  Cc: {', '.join(cc)}")
-#         return False
-
-#     try:
-#         outlook = _get_outlook()
-#         mail = outlook.CreateItem(0)
-#         mail.Subject = subject
-#         mail.BodyFormat = 2
-#         mail.HTMLBody = html_body
-#         mail.To = ";".join(to)
-#         if cc:
-#             mail.CC = ";".join(cc)
-#         mail.Send()
-#         if VERBOSE:
-#             logger.info(f"[SENT] {subject} → {', '.join(to)}")
-#         return True
-#     except Exception as e:
-#         logger.error(f"Failed to send '{subject}': {e}")
-#         return False
-
-
-
-
-
 """
 ================================================================================
-MTN QuantRisk - EMAIL SERVICE
+MTN QuantRisk - EMAIL SERVICE (Outlook Bulletproof Table Architecture)
 ================================================================================
-Dark-themed HTML emails matching the QuantRisk dashboard.
-Outlook color transparency rendering issues have been solved using solid hex keys.
+Uses pure MSO table formatting with explicit bgcolor & inline CSS so Microsoft 
+Word / Outlook Desktop renders dark mode, vibrant badges, and buttons accurately.
 ================================================================================
 """
 from __future__ import annotations
@@ -407,85 +63,47 @@ def mark_sent(log_path: str, record_ids: Iterable[str], recipients: str) -> None
             writer.writerow([rid, ts, recipients])
 
 
-# ── Dark Theme CSS (Solid Hex equivalents for Outlook Desktop Compatibility) ──
+# ── Outlook-Proof Badge Helpers (Inline Tables) ──────────────────────────────
 
-_EMAIL_CSS = """
-<style>
-  body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; color: #e0ddd8; background: #0a0a14; margin: 0; padding: 20px; }
-  .container { max-width: 720px; margin: 0 auto; background: #12121e; border-radius: 16px; overflow: hidden; border: 1px solid #232338; }
-  .header-news { background: linear-gradient(135deg, #16162a 0%, #1e1e38 100%); padding: 28px 32px; border-bottom: 2px solid #FFD000; }
-  .header-alert { background: linear-gradient(135deg, #1d0f0f 0%, #2d1414 100%); padding: 28px 32px; border-bottom: 2px solid #ef4444; }
-  .header h1 { margin: 0; font-size: 20px; font-weight: 700; color: #FFD000; letter-spacing: -0.3px; }
-  .header-alert h1 { color: #ef4444; }
-  .header .subtitle { margin: 6px 0 0 0; font-size: 12px; color: #88889a; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; }
-  .content { padding: 28px 32px; }
-  .article { background: #181826; border: 1px solid #2c2c3e; border-radius: 12px; padding: 18px; margin-bottom: 14px; }
-  .article-title { font-size: 14px; font-weight: 600; color: #ffffff; margin: 0 0 8px 0; line-height: 1.45; }
-  .article-title a { color: #FFD000; text-decoration: none; }
-  .article-title a:hover { text-decoration: underline; }
-  .article-meta { font-size: 11px; color: #7b7b8f; margin-bottom: 10px; font-family: 'Courier New', monospace; }
-  .article-meta span { margin-right: 12px; }
-  .summary-box { background: #221c05; border-left: 3px solid #b59300; border-radius: 0 8px 8px 0; padding: 12px 14px; margin: 10px 0; }
-  .summary-label { font-size: 10px; font-family: 'Courier New', monospace; text-transform: uppercase; letter-spacing: 1px; color: #FFD000; margin-bottom: 4px; font-weight: 700; }
-  .summary-text { font-size: 12px; color: #d4d0c8; line-height: 1.6; }
-  .badges { margin-top: 10px; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; margin-right: 5px; margin-bottom: 5px; font-family: 'Courier New', monospace; }
-  
-  /* Alert Tiers */
-  .badge-critical { background: #2d1414; color: #ef4444; border: 1px solid #5a2020; }
-  .badge-warning  { background: #331a0a; color: #f97316; border: 1px solid #663310; }
-  .badge-watch    { background: #2a2405; color: #facc15; border: 1px solid #544503; }
-  
-  /* Category Styling */
-  .badge-strategic    { background: #2d1414; color: #f87171; border: 1px solid #5a1c1c; }
-  .badge-governance   { background: #1b1e26; color: #94a3b8; border: 1px solid #333a4a; }
-  .badge-financial    { background: #2a2405; color: #facc15; border: 1px solid #544503; }
-  .badge-technology   { background: #0c1c38; color: #60a5fa; border: 1px solid #1a3870; }
-  .badge-operational  { background: #2e1b0a; color: #fb923c; border: 1px solid #5a3210; }
-  .badge-external     { background: #2d1020; color: #f472b6; border: 1px solid #5a1a3d; }
-  .badge-other        { background: #1f2124; color: #9ca3af; border: 1px solid #3c3f45; }
-
-  /* Subcategory & Stats */
-  .badge-subcat       { background: #1f1f2e; color: #b0b0c5; border: 1px solid #33334d; }
-  .badge-severity     { background: #212130; color: #9c9cb0; border: 1px solid #38384d; }
-  .badge-relevance    { background: #0c1c38; color: #60a5fa; border: 1px solid #1a3870; }
-
-  /* Sentiments */
-  .badge-sent-negative { background: #2d1414; color: #ef4444; border: 1px solid #5a2020; }
-  .badge-sent-neutral  { background: #1b1e26; color: #94a3b8; border: 1px solid #333a4a; }
-  .badge-sent-positive { background: #052410; color: #22c55e; border: 1px solid #104c20; }
-
-  .read-more { display: inline-block; margin-top: 10px; padding: 7px 16px; background: #2a2405; border: 1px solid #b59300; border-radius: 8px; color: #FFD000; font-size: 11px; font-weight: 600; text-decoration: none; font-family: 'Courier New', monospace; }
-  .read-more:hover { background: #3f3507; }
-  .footer { background: #10101c; padding: 18px 32px; font-size: 11px; color: #5a5a73; text-align: center; border-top: 1px solid #232338; font-family: 'Courier New', monospace; }
-  .no-items { padding: 40px; text-align: center; color: #5a5a73; font-size: 13px; }
-</style>
-"""
+def _badge(bg: str, border: str, text_color: str, text: str) -> str:
+    """Renders an Outlook-bulletproof badge using an inline table with bgcolor."""
+    return f"""
+    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="display:inline-table; margin-right:4px; margin-bottom:4px; vertical-align:middle;">
+      <tr>
+        <td bgcolor="{bg}" style="background-color:{bg}; border:1px solid {border}; border-radius:12px; padding:3px 9px; font-family:'Segoe UI', Arial, sans-serif; font-size:10px; font-weight:bold; color:{text_color}; text-transform:uppercase; mso-line-height-rule:exactly; line-height:12px;">
+          {text}
+        </td>
+      </tr>
+    </table>
+    """
 
 
 def _tier_badge(tier: str | None) -> str:
     if not tier:
         return ""
-    return f'<span class="badge badge-{tier.lower()}">{tier.upper()}</span>'
-
-
-def _relevance_badge(relevance: float | None) -> str:
-    if relevance is None:
-        return ""
-    return f'<span class="badge badge-relevance">MTN {int(relevance * 100)}%</span>'
-
-
-def _severity_badge(severity: float | None) -> str:
-    if severity is None:
-        return ""
-    return f'<span class="badge badge-severity">Severity {severity:.1f}/10</span>'
+    t = tier.lower()
+    if t == "critical":
+        return _badge("#3a1010", "#801e1e", "#ff5555", "CRITICAL")
+    if t == "warning":
+        return _badge("#3d1e05", "#8a3f05", "#ff8822", "WARNING")
+    return _badge("#383005", "#7a6505", "#ffd000", "WATCH")
 
 
 def _category_badge(category: str | None) -> str:
     if not category:
         return ""
     cat = category.lower().strip()
-    return f'<span class="badge badge-{cat}">{cat.capitalize()}</span>'
+    colors = {
+        "strategic":   ("#3a1010", "#801e1e", "#ff6b6b"),
+        "governance":  ("#202530", "#3d465c", "#a0aec0"),
+        "financial":   ("#383005", "#7a6505", "#ffd000"),
+        "technology":  ("#0d244a", "#1b4382", "#60a5fa"),
+        "operational": ("#38200d", "#7a4114", "#fb923c"),
+        "external":    ("#381028", "#781e55", "#f472b6"),
+        "other":       ("#22242a", "#40444f", "#9ca3af"),
+    }
+    bg, border, text = colors.get(cat, ("#22242a", "#40444f", "#9ca3af"))
+    return _badge(bg, border, text, cat.capitalize())
 
 
 def _subcategory_badge(subcategory: str | None) -> str:
@@ -494,14 +112,36 @@ def _subcategory_badge(subcategory: str | None) -> str:
     clean_sub = subcategory.replace(r"^\d+\s*-\s*", "").strip()
     if not clean_sub or clean_sub.lower() == "other":
         return ""
-    return f'<span class="badge badge-subcat">{clean_sub}</span>'
+    return _badge("#222235", "#3a3a55", "#c5c5dc", clean_sub)
 
 
 def _sentiment_badge(sentiment: str | None) -> str:
     if not sentiment:
         return ""
     sent = sentiment.lower().strip()
-    return f'<span class="badge badge-sent-{sent}">{sent.capitalize()}</span>'
+    if sent == "negative":
+        return _badge("#3a1010", "#801e1e", "#ff5555", "Negative")
+    if sent == "positive":
+        return _badge("#082e16", "#125e2e", "#34d399", "Positive")
+    return _badge("#202530", "#3d465c", "#94a3b8", "Neutral")
+
+
+def _relevance_badge(relevance: float | None) -> str:
+    if relevance is None:
+        return ""
+    return _badge("#0d244a", "#1b4382", "#60a5fa", f"MTN {int(relevance * 100)}%")
+
+
+def _severity_badge(severity: float | None) -> str:
+    if severity is None:
+        return ""
+    return _badge("#222235", "#3a3a55", "#a0a0b8", f"Severity {severity:.1f}/10")
+
+
+def _impact_badge(impact: float | None) -> str:
+    if not impact:
+        return ""
+    return _badge("#383005", "#7a6505", "#ffd000", f"Impact GHS {impact:.1f}m")
 
 
 def _fmt_datetime(iso: str | None) -> str:
@@ -519,57 +159,158 @@ def _fmt_datetime(iso: str | None) -> str:
 def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
     now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
 
+    articles_cells = []
     if not articles:
-        articles_html = '<div class="no-items">No new high-relevance articles in this category today.</div>'
+        articles_cells.append("""
+        <tr>
+          <td bgcolor="#181826" style="background-color:#181826; border:1px solid #2c2c3e; border-radius:10px; padding:30px; text-align:center; font-family:'Segoe UI', Arial, sans-serif; font-size:13px; color:#88889a;">
+            No new high-relevance articles in this category within the past 10 days.
+          </td>
+        </tr>
+        """)
     else:
-        parts = []
         for i, a in enumerate(articles, 1):
             summary = a.get("summary") or "Summary not available"
-            parts.append(f"""
-            <div class="article">
-              <div class="article-title">
-                <a href="{a.get('url', '#')}">{i}. {a.get('title', 'Untitled')}</a>
-              </div>
-              <div class="article-meta">
-                <span>{a.get('source_name') or 'Unknown'}</span>
-                <span>·</span>
-                <span>{_fmt_datetime(a.get('published_at'))}</span>
-              </div>
-              <div class="summary-box">
-                <div class="summary-label">🧠 AI Risk Summary & MTN Impact</div>
-                <div class="summary-text">{summary}</div>
-              </div>
-              <div class="badges">
-                {_tier_badge(a.get('alert_tier'))}
-                {_category_badge(a.get('category'))}
-                {_subcategory_badge(a.get('subcategory'))}
-                {_sentiment_badge(a.get('sentiment'))}
-                {_relevance_badge(a.get('mtn_relevance'))}
-                {_severity_badge(a.get('severity'))}
-              </div>
-              <a href="{a.get('url', '#')}" class="read-more" target="_blank">→ Read Full Article</a>
-            </div>
+            url = a.get("url", "#")
+            badges_html = (
+                _tier_badge(a.get("alert_tier")) +
+                _category_badge(a.get("category")) +
+                _subcategory_badge(a.get("subcategory")) +
+                _sentiment_badge(a.get("sentiment")) +
+                _relevance_badge(a.get("mtn_relevance")) +
+                _severity_badge(a.get("severity"))
+            )
+
+            articles_cells.append(f"""
+            <tr>
+              <td style="padding-bottom: 16px;">
+                <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-radius:12px;">
+                  <tr>
+                    <td style="padding: 20px;">
+                      
+                      <!-- Title -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
+                            <a href="{url}" target="_blank" style="color:#FFD000; text-decoration:none;">{i}. {a.get('title', 'Untitled')}</a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Meta -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
+                        <tr>
+                          <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
+                            {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('published_at'))}
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- AI Summary Box -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
+                        <tr>
+                          <td style="padding: 12px 14px;">
+                            <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                              🧠 AI Risk Summary & MTN Impact
+                            </div>
+                            <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
+                              {summary}
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Badges -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
+                        <tr>
+                          <td>
+                            {badges_html}
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Read Full Article Button -->
+                      <table role="presentation" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
+                            <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
+                              → Read Full Article
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
             """)
-        articles_html = "".join(parts)
+
+    content_table = "".join(articles_cells)
 
     return f"""
+    <!DOCTYPE html>
     <html>
-      <head>{_EMAIL_CSS}</head>
-      <body>
-        <div class="container">
-          <div class="header-news header">
-            <h1>📡 {category_label} - Daily Intelligence Briefing</h1>
-            <div class="subtitle">MTN QuantRisk · {now}</div>
-          </div>
-          <div class="content">
-            {articles_html}
-          </div>
-          <div class="footer">
-            MTN QuantRisk Automated Intelligence · {category_label} Department Distribution List<br>
-            To update your preferences, contact the QuantRisk admin team.
-          </div>
-        </div>
-      </body>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>{category_label} - Daily Intelligence Briefing</title>
+    </head>
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:20px; font-family:'Segoe UI', Arial, sans-serif;">
+      
+      <!-- Outer Centering Table -->
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14;">
+        <tr>
+          <td align="center">
+            
+            <!-- Main Email Container -->
+            <table role="presentation" width="680" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden;">
+              
+              <!-- Header -->
+              <tr>
+                <td bgcolor="#18182c" style="background-color:#18182c; border-bottom:3px solid #FFD000; padding:26px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:20px; font-weight:bold; color:#FFD000; letter-spacing:-0.3px;">
+                        📡 {category_label} - Daily Intelligence Briefing
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="font-family:'Courier New', monospace; font-size:11px; color:#88889a; text-transform:uppercase; letter-spacing:1px; padding-top:6px;">
+                        MTN QuantRisk &nbsp;·&nbsp; {now}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td style="padding: 26px 30px 10px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    {content_table}
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                  <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
+                    MTN QuantRisk Automated Intelligence &nbsp;·&nbsp; {category_label} Distribution List<br>
+                    Internal strictly confidential document for authorized recipients only.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+          </td>
+        </tr>
+      </table>
+
+    </body>
     </html>
     """
 
@@ -578,62 +319,164 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
 
 def render_alert_html(alerts: list[dict]) -> str:
     now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
+    primary_cat = alerts[0]["category"].capitalize() if alerts else "Risk"
 
+    alerts_cells = []
     if not alerts:
-        alerts_html = '<div class="no-items">No new alerts at this time.</div>'
+        alerts_cells.append("""
+        <tr>
+          <td bgcolor="#181826" style="background-color:#181826; border:1px solid #2c2c3e; border-radius:10px; padding:30px; text-align:center; font-family:'Segoe UI', Arial, sans-serif; font-size:13px; color:#88889a;">
+            No new Critical or Warning alerts within the past 10 days.
+          </td>
+        </tr>
+        """)
     else:
-        parts = []
         for a in alerts:
-            impact = a.get("impact_ghs_mid")
-            impact_str = f"GHS {impact:.1f}m" if impact else "—"
             summary = a.get("summary") or "Summary not available"
-            article_url = a.get("article_url") or "#"
-            parts.append(f"""
-            <div class="article" style="border-left: 3px solid {'#ef4444' if a.get('tier') == 'Critical' else '#f97316'};">
-              <div class="article-title">
-                <a href="{article_url}">{a.get('headline', 'Untitled')}</a>
-              </div>
-              <div class="article-meta">
-                <span>{a.get('source_name') or 'Unknown'}</span>
-                <span>·</span>
-                <span>{_fmt_datetime(a.get('created_at'))}</span>
-              </div>
-              <div class="summary-box">
-                <div class="summary-label">🧠 AI Risk Summary & MTN Impact</div>
-                <div class="summary-text">{summary}</div>
-              </div>
-              <div class="badges">
-                {_tier_badge(a.get('tier'))}
-                {_category_badge(a.get('category'))}
-                {_subcategory_badge(a.get('subcategory'))}
-                {_sentiment_badge(a.get('sentiment'))}
-                {_relevance_badge(a.get('mtn_relevance'))}
-                {_severity_badge(a.get('severity'))}
-                <span class="badge badge-severity">Impact {impact_str}</span>
-              </div>
-              <a href="{article_url}" class="read-more" target="_blank">→ Read Full Article</a>
-            </div>
+            url = a.get("article_url") or "#"
+            tier = a.get("tier", "Warning")
+            card_border_left = "#ef4444" if tier == "Critical" else "#f97316"
+            
+            badges_html = (
+                _tier_badge(tier) +
+                _category_badge(a.get("category")) +
+                _subcategory_badge(a.get("subcategory")) +
+                _sentiment_badge(a.get("sentiment")) +
+                _relevance_badge(a.get("mtn_relevance")) +
+                _severity_badge(a.get("severity")) +
+                _impact_badge(a.get("impact_ghs_mid"))
+            )
+
+            alerts_cells.append(f"""
+            <tr>
+              <td style="padding-bottom: 16px;">
+                <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-left:4px solid {card_border_left}; border-radius:12px;">
+                  <tr>
+                    <td style="padding: 20px;">
+                      
+                      <!-- Title -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
+                            <a href="{url}" target="_blank" style="color:#ffffff; text-decoration:none;">{a.get('headline', 'Untitled Alert')}</a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Meta -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
+                        <tr>
+                          <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
+                            {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('created_at'))}
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- AI Summary Box -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
+                        <tr>
+                          <td style="padding: 12px 14px;">
+                            <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                              🧠 AI Risk Summary & MTN Impact
+                            </div>
+                            <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
+                              {summary}
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Badges -->
+                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
+                        <tr>
+                          <td>
+                            {badges_html}
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Read Full Article Button -->
+                      <table role="presentation" border="0" cellspacing="0" cellpadding="0">
+                        <tr>
+                          <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
+                            <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
+                              → Read Full Article
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
             """)
-        alerts_html = "".join(parts)
+
+    content_table = "".join(alerts_cells)
 
     return f"""
+    <!DOCTYPE html>
     <html>
-      <head>{_EMAIL_CSS}</head>
-      <body>
-        <div class="container">
-          <div class="header-alert header">
-            <h1>🚨 Immediate Action Required — Risk Alert Notification</h1>
-            <div class="subtitle" style="color: rgba(239,68,68,0.6);">MTN QuantRisk · {now}</div>
-          </div>
-          <div class="content">
-            {alerts_html}
-          </div>
-          <div class="footer">
-            MTN QuantRisk Automated Alert System · Please acknowledge on the platform.<br>
-            To update your preferences, contact the QuantRisk admin team.
-          </div>
-        </div>
-      </body>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>{primary_cat} Risk - Daily Intelligence Briefing</title>
+    </head>
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:20px; font-family:'Segoe UI', Arial, sans-serif;">
+      
+      <!-- Outer Centering Table -->
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14;">
+        <tr>
+          <td align="center">
+            
+            <!-- Main Email Container -->
+            <table role="presentation" width="680" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden;">
+              
+              <!-- Header -->
+              <tr>
+                <td bgcolor="#211010" style="background-color:#211010; border-bottom:3px solid #ef4444; padding:26px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:20px; font-weight:bold; color:#ef4444; letter-spacing:-0.3px;">
+                        🚨 {primary_cat} Risk - Daily Intelligence Briefing
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="font-family:'Courier New', monospace; font-size:11px; color:#a36868; text-transform:uppercase; letter-spacing:1px; padding-top:6px;">
+                        MTN QuantRisk &nbsp;·&nbsp; {now}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td style="padding: 26px 30px 10px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    {content_table}
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                  <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
+                    MTN QuantRisk Automated Alert System &nbsp;·&nbsp; Please acknowledge on the platform.<br>
+                    Internal strictly confidential document for authorized recipients only.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+          </td>
+        </tr>
+      </table>
+
+    </body>
     </html>
     """
 
@@ -675,7 +518,7 @@ def send_email(subject: str, html_body: str, to: list[str], cc: list[str] | None
         if cc:
             mail.CC = ";".join(cc)
 
-        # ── EXPLICIT SENDER ACCOUNT OPTIMIZATION ──
+        # Explicit Sender selection
         if SENDER_EMAIL and SENDER_EMAIL.strip():
             matched_account = None
             for account in outlook.Session.Accounts:
