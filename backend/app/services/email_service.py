@@ -256,20 +256,37 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>{category_label} - Daily Intelligence Briefing</title>
+      <style>
+        @media screen and (max-width: 640px) {{
+          .main-container {{
+            width: 100% !important;
+            border-radius: 8px !important;
+          }}
+          .header-padding {{
+            padding: 20px 16px !important;
+          }}
+          .content-padding {{
+            padding: 20px 16px 10px 16px !important;
+          }}
+          .footer-padding {{
+            padding: 16px 16px !important;
+          }}
+        }}
+      </style>
     </head>
-    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:20px; font-family:'Segoe UI', Arial, sans-serif;">
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:10px 0; font-family:'Segoe UI', Arial, sans-serif; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
       
       <!-- Outer Centering Table -->
-      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14;">
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14; table-layout:fixed;">
         <tr>
-          <td align="center">
+          <td align="center" style="padding: 0 10px;">
             
             <!-- Main Email Container -->
-            <table role="presentation" width="680" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden;">
+            <table class="main-container" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden; max-width:680px; width:100%;">
               
               <!-- Header -->
               <tr>
-                <td bgcolor="#18182c" style="background-color:#18182c; border-bottom:3px solid #FFD000; padding:26px 30px;">
+                <td class="header-padding" bgcolor="#18182c" style="background-color:#18182c; border-bottom:3px solid #FFD000; padding:26px 30px;">
                   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                       <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:20px; font-weight:bold; color:#FFD000; letter-spacing:-0.3px;">
@@ -287,7 +304,7 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
 
               <!-- Content Body -->
               <tr>
-                <td style="padding: 26px 30px 10px 30px;">
+                <td class="content-padding" style="padding: 26px 30px 10px 30px;">
                   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                     {content_table}
                   </table>
@@ -296,7 +313,7 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
 
               <!-- Footer -->
               <tr>
-                <td bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                <td class="footer-padding" bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
                   <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
                     MTN QuantRisk Automated Intelligence &nbsp;·&nbsp; {category_label} Distribution List<br>
                     Internal strictly confidential document for authorized recipients only.
@@ -422,20 +439,37 @@ def render_alert_html(alerts: list[dict]) -> str:
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>{primary_cat} Risk - Daily Intelligence Briefing</title>
+      <style>
+        @media screen and (max-width: 640px) {{
+          .main-container {{
+            width: 100% !important;
+            border-radius: 8px !important;
+          }}
+          .header-padding {{
+            padding: 20px 16px !important;
+          }}
+          .content-padding {{
+            padding: 20px 16px 10px 16px !important;
+          }}
+          .footer-padding {{
+            padding: 16px 16px !important;
+          }}
+        }}
+      </style>
     </head>
-    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:20px; font-family:'Segoe UI', Arial, sans-serif;">
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:10px 0; font-family:'Segoe UI', Arial, sans-serif; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
       
       <!-- Outer Centering Table -->
-      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14;">
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14; table-layout:fixed;">
         <tr>
-          <td align="center">
+          <td align="center" style="padding: 0 10px;">
             
             <!-- Main Email Container -->
-            <table role="presentation" width="680" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden;">
+            <table class="main-container" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden; max-width:680px; width:100%;">
               
               <!-- Header -->
               <tr>
-                <td bgcolor="#211010" style="background-color:#211010; border-bottom:3px solid #ef4444; padding:26px 30px;">
+                <td class="header-padding" bgcolor="#211010" style="background-color:#211010; border-bottom:3px solid #ef4444; padding:26px 30px;">
                   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                     <tr>
                       <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:20px; font-weight:bold; color:#ef4444; letter-spacing:-0.3px;">
@@ -453,7 +487,7 @@ def render_alert_html(alerts: list[dict]) -> str:
 
               <!-- Content Body -->
               <tr>
-                <td style="padding: 26px 30px 10px 30px;">
+                <td class="content-padding" style="padding: 26px 30px 10px 30px;">
                   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
                     {content_table}
                   </table>
@@ -462,7 +496,7 @@ def render_alert_html(alerts: list[dict]) -> str:
 
               <!-- Footer -->
               <tr>
-                <td bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                <td class="footer-padding" bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
                   <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
                     MTN QuantRisk Automated Alert System &nbsp;·&nbsp; Please acknowledge on the platform.<br>
                     Internal strictly confidential document for authorized recipients only.
