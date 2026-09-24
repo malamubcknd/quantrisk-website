@@ -565,3 +565,19 @@ def acknowledge_alert(alert_id: str):
     if not result:
         raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found")
     return result
+
+
+# ── TV Slideshow ──────────────────────────────────────────────────────────────
+
+# ── TV Slideshow ──────────────────────────────────────────────────────────────
+
+# ── TV Slideshow ──────────────────────────────────────────────────────────────
+
+@router.get("/tv/slideshow")
+def tv_slideshow_endpoint(days: int = 10):
+    """Returns aggregated news and alerts grouped by category for office TV slideshow."""
+    from ..models.database import SessionLocal
+    from ..services.tv_service import get_tv_slideshow_data
+
+    with SessionLocal() as db:
+        return get_tv_slideshow_data(db, days_limit=days)
