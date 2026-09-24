@@ -485,3 +485,159 @@ export async function fetchCurrentUser(): Promise<User | null> {
     return null;
   }
 }
+
+
+
+
+
+
+
+// 
+export interface TvSlideshowData {
+  daysLimit: number;
+  generatedAt: string;
+  categories: Record<string, {
+    news: Array<{
+      id: string;
+      title: string;
+      summary: string;
+      sourceName: string;
+      publishedAt: string | null;
+      severity: number;
+      mtnRelevance: number;
+      sentiment: string;
+      subcategory: string;
+    }>;
+    alerts: Array<{
+      id: string;
+      headline: string;
+      summary: string;
+      tier: string;
+      severity: number;
+      impactGhsMid: number | null;
+      sourceName: string;
+      createdAt: string | null;
+      subcategory: string;
+    }>;
+  }>;
+}
+
+type TvCategoryBucket = TvSlideshowData['categories'][string];
+
+/**
+ * Fetches compiled news & alerts segmented by categories for the office TV display.
+ * Uses direct backend endpoint with fallback to existing authenticated news/alerts feeds.
+ */
+export async function fetchTvSlideshow(days: number = 10): Promise<TvSlideshowData> {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+  
+  let token = '';
+  if (typeof window !== 'undefined') {
+    token = localStorage.getItem('token') || 
+            localStorage.getItem('auth_token') || 
+            localStorage.getItem('quantrisk_token') || 
+            sessionStorage.getItem('token') || '';
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // 1. Attempt direct backend TV aggregation endpoint
+  try {
+    const res = await fetch(`${API_BASE}/tv/slideshow?days=${days}`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+      cache: 'no-store'
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // If direct endpoint fails, seamlessly assemble from working feeds below
+  }
+
+  // 2. Direct fallback: Assemble from existing authenticated news & alert feeds
+  const [allNews, allAlerts] = await Promise.all([
+    fetchNews({ limit: 100 }).catch(() => []),
+    fetchAlerts({ limit: 100 }).catch(() => [])
+  ]);
+
+  const cutoffTime = Date.now() - days * 24 * 60 * 60 * 1000;
+  const categories: Record<string, TvCategoryBucket> = {
+    Strategic:   { news: [], alerts: [] },
+    Governance:  { news: [], alerts: [] },
+    Financial:   { news: [], alerts: [] },
+    Technology:  { news: [], alerts: [] },
+    Operational: { news: [], alerts: [] },
+    External:    { news: [], alerts: [] },
+    Other:       { news: [], alerts: [] },
+  };
+
+  allNews.forEach((item: any) => {
+    const itemDate = new Date(item.publishedAt || item.scrapedAt || 0).getTime();
+    if (itemDate >= cutoffTime || days >= 30) {
+      const rawCat = item.category ? String(item.category).trim() : 'Other';
+      const catKey = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
+      const targetCat = categories[catKey] ? catKey : 'Other';
+      const bucket = categories[targetCat];
+
+      if (bucket) {
+        bucket.news.push({
+          id: String(item.id || ''),
+          title: item.title || 'Untitled Article',
+          summary: item.summary || 'Summary not available',
+          sourceName: item.sourceName || 'Unknown Source',
+          publishedAt: item.publishedAt || item.scrapedAt || null,
+          severity: Number(item.severity ?? 5.0),
+          mtnRelevance: Number(item.mtnRelevance ?? 0.5),
+          sentiment: item.sentiment || 'neutral',
+          subcategory: item.subcategory || ''
+        });
+      }
+    }
+  });
+
+  allAlerts.forEach((item: any) => {
+    const itemDate = new Date(item.createdAt || 0).getTime();
+    if (itemDate >= cutoffTime || days >= 30) {
+      const rawCat = item.category ? String(item.category).trim() : 'Other';
+      const catKey = rawCat.charAt(0).toUpperCase() + rawCat.slice(1).toLowerCase();
+      const targetCat = categories[catKey] ? catKey : 'Other';
+      const bucket = categories[targetCat];
+
+      if (bucket) {
+        bucket.alerts.push({
+          id: String(item.id || ''),
+          headline: item.headline || 'Untitled Alert',
+          summary: item.summary || item.headline || 'Alert details unavailable',
+          tier: item.tier || 'Warning',
+          severity: Number(item.severity ?? 5.0),
+          impactGhsMid: item.impactGhsMid != null ? Number(item.impactGhsMid) : null,
+          sourceName: item.sourceName || 'Unknown Source',
+          createdAt: item.createdAt || null,
+          subcategory: item.subcategory || ''
+        });
+      }
+    }
+  });
+
+  // Keep only active categories
+  const activeCategories: TvSlideshowData['categories'] = {};
+  Object.entries(categories).forEach(([cat, content]) => {
+    if (content && (content.news.length > 0 || content.alerts.length > 0)) {
+      activeCategories[cat] = content;
+    }
+  });
+
+  return {
+    daysLimit: days,
+    generatedAt: new Date().toISOString(),
+    categories: activeCategories
+  };
+}
