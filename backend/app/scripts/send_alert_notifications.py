@@ -19,11 +19,11 @@ from app.models.alert import Alert
 from app.models.article import Article
 from app.models.risk_score import RiskScore
 from app.services.email_service import (
-    load_sent_ids, mark_sent, render_alert_html, send_email
+    load_sent_ids, mark_sent, render_alert_html, render_consolidated_alert_html, send_email
 )
 from app.config.email_config import (
-    ALERT_RECIPIENTS, ALERT_TIERS_TO_SEND,
-    EMAIL_SUBJECT_ALERT, SENT_ALERTS_LOG, VERBOSE, MAX_AGE_DAYS
+    ALERT_RECIPIENTS, ALERT_TIERS_TO_SEND, HEAD_OF_RISKS_RECIPIENTS,
+    EMAIL_SUBJECT_ALERT, EMAIL_SUBJECT_CONSOLIDATED_ALERT, SENT_ALERTS_LOG, VERBOSE, MAX_AGE_DAYS
 )
 
 logging.basicConfig(level=logging.INFO if VERBOSE else logging.WARNING,
@@ -108,8 +108,20 @@ def main():
             warning=warning
         )
 
+        # ── Send Individual Team Alerts ──
         html = render_alert_html(alerts)
         success = send_email(subject, html, to=to, cc=cc, preview=args.preview)
+
+        # ── Send Consolidated Alerts to Head of All Risks ──
+        head_to = HEAD_OF_RISKS_RECIPIENTS.get("to", [])
+        head_cc = HEAD_OF_RISKS_RECIPIENTS.get("cc", [])
+        if head_to:
+            head_subject = EMAIL_SUBJECT_CONSOLIDATED_ALERT.format(
+                critical=critical,
+                warning=warning
+            )
+            head_html = render_consolidated_alert_html(alerts)
+            send_email(head_subject, head_html, to=head_to, cc=head_cc, preview=args.preview)
 
         if success or args.dry_run:
             alert_ids = [a["id"] for a in alerts]

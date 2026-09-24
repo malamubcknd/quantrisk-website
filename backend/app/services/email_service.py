@@ -16,6 +16,7 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,184 @@ def _fmt_datetime(iso: str | None) -> str:
         return iso
 
 
+# ── ARTICLE CARD RENDERER (SHARED ELEMENT) ───────────────────────────────────
+
+def _render_single_article_row(i: int, a: dict) -> str:
+    summary = a.get("summary") or "Summary not available"
+    url = a.get("url", "#")
+    badges_html = (
+        _tier_badge(a.get("alert_tier")) +
+        _category_badge(a.get("category")) +
+        _subcategory_badge(a.get("subcategory")) +
+        _sentiment_badge(a.get("sentiment")) +
+        _relevance_badge(a.get("mtn_relevance")) +
+        _severity_badge(a.get("severity"))
+    )
+
+    return f"""
+    <tr>
+      <td style="padding-bottom: 16px;">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-radius:12px;">
+          <tr>
+            <td style="padding: 20px;">
+              
+              <!-- Title -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
+                    <a href="{url}" target="_blank" style="color:#FFD000; text-decoration:none;">{i}. {a.get('title', 'Untitled')}</a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Meta -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
+                <tr>
+                  <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
+                    {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('published_at'))}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- AI Summary Box -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
+                <tr>
+                  <td style="padding: 12px 14px;">
+                    <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                      🧠 AI Risk Summary & MTN Impact
+                    </div>
+                    <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
+                      {summary}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Badges -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
+                <tr>
+                  <td>
+                    {badges_html}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Read Full Article Button -->
+              <table role="presentation" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
+                    <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
+                      → Read Full Article
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    """
+
+
+# ── ALERT CARD RENDERER (SHARED ELEMENT) ─────────────────────────────────────
+
+def _render_single_alert_row(a: dict) -> str:
+    summary = a.get("summary") or "Summary not available"
+    url = a.get("article_url") or "#"
+    tier = a.get("tier", "Warning")
+    card_border_left = "#ef4444" if tier == "Critical" else "#f97316"
+    
+    badges_html = (
+        _tier_badge(tier) +
+        _category_badge(a.get("category")) +
+        _subcategory_badge(a.get("subcategory")) +
+        _sentiment_badge(a.get("sentiment")) +
+        _relevance_badge(a.get("mtn_relevance")) +
+        _severity_badge(a.get("severity")) +
+        _impact_badge(a.get("impact_ghs_mid"))
+    )
+
+    return f"""
+    <tr>
+      <td style="padding-bottom: 16px;">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-left:4px solid {card_border_left}; border-radius:12px;">
+          <tr>
+            <td style="padding: 20px;">
+              
+              <!-- Title -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
+                    <a href="{url}" target="_blank" style="color:#ffffff; text-decoration:none;">{a.get('headline', 'Untitled Alert')}</a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Meta -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
+                <tr>
+                  <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
+                    {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('created_at'))}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- AI Summary Box -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
+                <tr>
+                  <td style="padding: 12px 14px;">
+                    <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
+                      🧠 AI Risk Summary & MTN Impact
+                    </div>
+                    <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
+                      {summary}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Badges -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
+                <tr>
+                  <td>
+                    {badges_html}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Read Full Article Button -->
+              <table role="presentation" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
+                    <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
+                      → Read Full Article
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+    """
+
+
+# ── SECTION HEADER FOR CONSOLIDATED LAYOUTS ──────────────────────────────────
+
+def _render_section_divider(category_name: str) -> str:
+    return f"""
+    <tr>
+      <td style="padding: 15px 10px 10px 10px; font-family:'Segoe UI', Arial, sans-serif; font-size:14px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px;">
+        📂 Category: {category_name}
+      </td>
+    </tr>
+    """
+
+
 # ── NEWS DIGEST HTML ──────────────────────────────────────────────────────────
 
 def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
@@ -170,82 +349,7 @@ def render_news_digest_html(category_label: str, articles: list[dict]) -> str:
         """)
     else:
         for i, a in enumerate(articles, 1):
-            summary = a.get("summary") or "Summary not available"
-            url = a.get("url", "#")
-            badges_html = (
-                _tier_badge(a.get("alert_tier")) +
-                _category_badge(a.get("category")) +
-                _subcategory_badge(a.get("subcategory")) +
-                _sentiment_badge(a.get("sentiment")) +
-                _relevance_badge(a.get("mtn_relevance")) +
-                _severity_badge(a.get("severity"))
-            )
-
-            articles_cells.append(f"""
-            <tr>
-              <td style="padding-bottom: 16px;">
-                <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-radius:12px;">
-                  <tr>
-                    <td style="padding: 20px;">
-                      
-                      <!-- Title -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
-                        <tr>
-                          <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
-                            <a href="{url}" target="_blank" style="color:#FFD000; text-decoration:none;">{i}. {a.get('title', 'Untitled')}</a>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Meta -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
-                        <tr>
-                          <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
-                            {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('published_at'))}
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- AI Summary Box -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
-                        <tr>
-                          <td style="padding: 12px 14px;">
-                            <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
-                              🧠 AI Risk Summary & MTN Impact
-                            </div>
-                            <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
-                              {summary}
-                            </div>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Badges -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
-                        <tr>
-                          <td>
-                            {badges_html}
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Read Full Article Button -->
-                      <table role="presentation" border="0" cellspacing="0" cellpadding="0">
-                        <tr>
-                          <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
-                            <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
-                              → Read Full Article
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            """)
+            articles_cells.append(_render_single_article_row(i, a))
 
     content_table = "".join(articles_cells)
 
@@ -349,86 +453,7 @@ def render_alert_html(alerts: list[dict]) -> str:
         """)
     else:
         for a in alerts:
-            summary = a.get("summary") or "Summary not available"
-            url = a.get("article_url") or "#"
-            tier = a.get("tier", "Warning")
-            card_border_left = "#ef4444" if tier == "Critical" else "#f97316"
-            
-            badges_html = (
-                _tier_badge(tier) +
-                _category_badge(a.get("category")) +
-                _subcategory_badge(a.get("subcategory")) +
-                _sentiment_badge(a.get("sentiment")) +
-                _relevance_badge(a.get("mtn_relevance")) +
-                _severity_badge(a.get("severity")) +
-                _impact_badge(a.get("impact_ghs_mid"))
-            )
-
-            alerts_cells.append(f"""
-            <tr>
-              <td style="padding-bottom: 16px;">
-                <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#181826" style="background-color:#181826; border:1px solid #2d2d42; border-left:4px solid {card_border_left}; border-radius:12px;">
-                  <tr>
-                    <td style="padding: 20px;">
-                      
-                      <!-- Title -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
-                        <tr>
-                          <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:15px; font-weight:bold; line-height:22px;">
-                            <a href="{url}" target="_blank" style="color:#ffffff; text-decoration:none;">{a.get('headline', 'Untitled Alert')}</a>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Meta -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top:6px; margin-bottom:12px;">
-                        <tr>
-                          <td style="font-family:'Courier New', monospace; font-size:11px; color:#7e7e94;">
-                            {a.get('source_name') or 'Unknown Source'} &nbsp;·&nbsp; {_fmt_datetime(a.get('created_at'))}
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- AI Summary Box -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#241e06" style="background-color:#241e06; border-left:4px solid #FFD000; border-radius:0 8px 8px 0; margin-bottom:14px;">
-                        <tr>
-                          <td style="padding: 12px 14px;">
-                            <div style="font-family:'Courier New', monospace; font-size:10px; font-weight:bold; color:#FFD000; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">
-                              🧠 AI Risk Summary & MTN Impact
-                            </div>
-                            <div style="font-family:'Segoe UI', Arial, sans-serif; font-size:12px; color:#e0ded8; line-height:18px;">
-                              {summary}
-                            </div>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Badges -->
-                      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 14px;">
-                        <tr>
-                          <td>
-                            {badges_html}
-                          </td>
-                        </tr>
-                      </table>
-
-                      <!-- Read Full Article Button -->
-                      <table role="presentation" border="0" cellspacing="0" cellpadding="0">
-                        <tr>
-                          <td bgcolor="#2e2607" style="background-color:#2e2607; border:1px solid #FFD000; border-radius:6px; padding:7px 16px; text-align:center;">
-                            <a href="{url}" target="_blank" style="font-family:'Courier New', monospace; font-size:11px; font-weight:bold; color:#FFD000; text-decoration:none; display:inline-block;">
-                              → Read Full Article
-                            </a>
-                          </td>
-                        </tr>
-                      </table>
-
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            """)
+            alerts_cells.append(_render_single_alert_row(a))
 
     content_table = "".join(alerts_cells)
 
@@ -500,6 +525,230 @@ def render_alert_html(alerts: list[dict]) -> str:
                   <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
                     MTN QuantRisk Automated Alert System &nbsp;·&nbsp; Please acknowledge on the platform.<br>
                     Internal strictly confidential document for authorized recipients only.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+          </td>
+        </tr>
+      </table>
+
+    </body>
+    </html>
+    """
+
+
+# ── CONSOLIDATED NEWS DIGEST (HEAD OF RISKS) ──────────────────────────────────
+
+def render_consolidated_news_digest_html(articles: list[dict]) -> str:
+    now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
+
+    # Group articles by category
+    grouped = defaultdict(list)
+    for a in articles:
+        cat = a.get("category", "Other") or "Other"
+        grouped[cat.strip().capitalize()].append(a)
+
+    articles_cells = []
+    if not articles:
+        articles_cells.append("""
+        <tr>
+          <td bgcolor="#181826" style="background-color:#181826; border:1px solid #2c2c3e; border-radius:10px; padding:30px; text-align:center; font-family:'Segoe UI', Arial, sans-serif; font-size:13px; color:#88889a;">
+            No new articles distributed in today's cycle.
+          </td>
+        </tr>
+        """)
+    else:
+        count = 1
+        for cat, cat_articles in sorted(grouped.items()):
+            articles_cells.append(_render_section_divider(cat))
+            for a in cat_articles:
+                articles_cells.append(_render_single_article_row(count, a))
+                count += 1
+
+    content_table = "".join(articles_cells)
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>MTN QuantRisk Consolidated Intelligence Briefing</title>
+      <style>
+        @media screen and (max-width: 640px) {{
+          .main-container {{
+            width: 100% !important;
+            border-radius: 8px !important;
+          }}
+          .header-padding {{
+            padding: 20px 16px !important;
+          }}
+          .content-padding {{
+            padding: 20px 16px 10px 16px !important;
+          }}
+          .footer-padding {{
+            padding: 16px 16px !important;
+          }}
+        }}
+      </style>
+    </head>
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:10px 0; font-family:'Segoe UI', Arial, sans-serif; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+      
+      <!-- Outer Centering Table -->
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14; table-layout:fixed;">
+        <tr>
+          <td align="center" style="padding: 0 10px;">
+            
+            <!-- Main Email Container -->
+            <table class="main-container" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden; max-width:680px; width:100%;">
+              
+              <!-- Header -->
+              <tr>
+                <td class="header-padding" bgcolor="#18182c" style="background-color:#18182c; border-bottom:3px solid #FFD000; padding:26px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:18px; font-weight:bold; color:#FFD000; letter-spacing:-0.3px;">
+                        📡 MTN QuantRisk Consolidated Briefing
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="font-family:'Courier New', monospace; font-size:11px; color:#88889a; text-transform:uppercase; letter-spacing:1px; padding-top:6px;">
+                        Head of All Risks Portfolio &nbsp;·&nbsp; {now}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td class="content-padding" style="padding: 26px 30px 10px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    {content_table}
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td class="footer-padding" bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                  <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
+                    MTN QuantRisk Automated Intelligence (Consolidated Mode)<br>
+                    Strictly Confidential · Dedicated Distribution Line
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+          </td>
+        </tr>
+      </table>
+
+    </body>
+    </html>
+    """
+
+
+# ── CONSOLIDATED ALERTS (HEAD OF RISKS) ────────────────────────────────────────
+
+def render_consolidated_alert_html(alerts: list[dict]) -> str:
+    now = datetime.now().strftime("%A, %d %B %Y · %H:%M GMT")
+
+    # Group alerts by category
+    grouped = defaultdict(list)
+    for a in alerts:
+        cat = a.get("category", "Risk") or "Risk"
+        grouped[cat.strip().capitalize()].append(a)
+
+    alerts_cells = []
+    if not alerts:
+        alerts_cells.append("""
+        <tr>
+          <td bgcolor="#181826" style="background-color:#181826; border:1px solid #2c2c3e; border-radius:10px; padding:30px; text-align:center; font-family:'Segoe UI', Arial, sans-serif; font-size:13px; color:#88889a;">
+            No new Critical or Warning alerts active today.
+          </td>
+        </tr>
+        """)
+    else:
+        for cat, cat_alerts in sorted(grouped.items()):
+            alerts_cells.append(_render_section_divider(cat))
+            for a in cat_alerts:
+                alerts_cells.append(_render_single_alert_row(a))
+
+    content_table = "".join(alerts_cells)
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>MTN QuantRisk Consolidated Alerts</title>
+      <style>
+        @media screen and (max-width: 640px) {{
+          .main-container {{
+            width: 100% !important;
+            border-radius: 8px !important;
+          }}
+          .header-padding {{
+            padding: 20px 16px !important;
+          }}
+          .content-padding {{
+            padding: 20px 16px 10px 16px !important;
+          }}
+          .footer-padding {{
+            padding: 16px 16px !important;
+          }}
+        }}
+      </style>
+    </head>
+    <body bgcolor="#0a0a14" style="background-color:#0a0a14; margin:0; padding:10px 0; font-family:'Segoe UI', Arial, sans-serif; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%;">
+      
+      <!-- Outer Centering Table -->
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#0a0a14" style="background-color:#0a0a14; table-layout:fixed;">
+        <tr>
+          <td align="center" style="padding: 0 10px;">
+            
+            <!-- Main Email Container -->
+            <table class="main-container" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#12121e" style="background-color:#12121e; border:1px solid #232338; border-radius:16px; overflow:hidden; max-width:680px; width:100%;">
+              
+              <!-- Header -->
+              <tr>
+                <td class="header-padding" bgcolor="#211010" style="background-color:#211010; border-bottom:3px solid #ef4444; padding:26px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <tr>
+                      <td style="font-family:'Segoe UI', Arial, sans-serif; font-size:18px; font-weight:bold; color:#ef4444; letter-spacing:-0.3px;">
+                        🚨 MTN QuantRisk Consolidated Active Alerts
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="font-family:'Courier New', monospace; font-size:11px; color:#a36868; text-transform:uppercase; letter-spacing:1px; padding-top:6px;">
+                        Head of All Risks Portfolio &nbsp;·&nbsp; {now}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td class="content-padding" style="padding: 26px 30px 10px 30px;">
+                  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                    {content_table}
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td class="footer-padding" bgcolor="#0d0d17" style="background-color:#0d0d17; border-top:1px solid #232338; padding:20px 30px; text-align:center;">
+                  <p style="margin:0; font-family:'Courier New', monospace; font-size:11px; color:#5a5a73; line-height:16px;">
+                    MTN QuantRisk Automated Alert System (Consolidated Mode)<br>
+                    Strictly Confidential · Dedicated Distribution Line
                   </p>
                 </td>
               </tr>

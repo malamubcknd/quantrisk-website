@@ -19,11 +19,11 @@ from app.models.database import SessionLocal
 from app.models.article import Article
 from app.models.risk_score import RiskScore
 from app.services.email_service import (
-    load_sent_ids, mark_sent, render_news_digest_html, send_email
+    load_sent_ids, mark_sent, render_news_digest_html, render_consolidated_news_digest_html, send_email
 )
 from app.config.email_config import (
-    NEWS_RECIPIENTS, NEWS_MIN_MTN_RELEVANCE, NEWS_TOP_N,
-    EMAIL_SUBJECT_NEWS, SENT_NEWS_LOG, VERBOSE, MAX_AGE_DAYS
+    NEWS_RECIPIENTS, NEWS_MIN_MTN_RELEVANCE, NEWS_TOP_N, HEAD_OF_RISKS_RECIPIENTS,
+    EMAIL_SUBJECT_NEWS, EMAIL_SUBJECT_CONSOLIDATED_NEWS, SENT_NEWS_LOG, VERBOSE, MAX_AGE_DAYS
 )
 
 logging.basicConfig(level=logging.INFO if VERBOSE else logging.WARNING,
@@ -107,6 +107,8 @@ def main():
 
     now = datetime.now(timezone.utc)
     categories = list(NEWS_RECIPIENTS.keys())
+    
+    all_processed_articles = []
     total_sent = 0
 
     with SessionLocal() as db:
@@ -126,14 +128,26 @@ def main():
             subject = EMAIL_SUBJECT_NEWS.format(category=cat_label)
             html = render_news_digest_html(cat_label, articles)
 
+            # ── Send individual group email ──
             success = send_email(subject, html, to=to, cc=cc, preview=args.preview)
 
             if success or args.dry_run:
-                article_ids = [a["id"] for a in articles]
-                if not args.preview and not args.dry_run:
-                    mark_sent(SENT_NEWS_LOG, article_ids, ";".join(to))
-                total_sent += len(article_ids)
-                logger.info(f"[{cat.upper()}] {'Previewed' if args.preview else 'Sent'} {len(article_ids)} articles → {', '.join(to)}")
+                all_processed_articles.extend(articles)
+                total_sent += len(articles)
+                logger.info(f"[{cat.upper()}] {'Previewed' if args.preview else 'Sent'} {len(articles)} articles → {', '.join(to)}")
+
+        # ── Send Consolidated News Digest to Head of All Risks ──
+        head_to = HEAD_OF_RISKS_RECIPIENTS.get("to", [])
+        head_cc = HEAD_OF_RISKS_RECIPIENTS.get("cc", [])
+        if all_processed_articles and head_to:
+            head_subject = EMAIL_SUBJECT_CONSOLIDATED_NEWS
+            head_html = render_consolidated_news_digest_html(all_processed_articles)
+            send_email(head_subject, head_html, to=head_to, cc=head_cc, preview=args.preview)
+
+        # ── Mark Sent Status ──
+        if all_processed_articles and not args.preview and not args.dry_run:
+            article_ids = [a["id"] for a in all_processed_articles]
+            mark_sent(SENT_NEWS_LOG, article_ids, "Distributed")
 
     logger.info(f"Done. Total articles processed: {total_sent}")
 
