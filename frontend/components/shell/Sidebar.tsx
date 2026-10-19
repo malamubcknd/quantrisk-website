@@ -281,28 +281,29 @@ const NAV_ITEMS: NavGroup[] = [
   {
     group: 'Core',
     items: [
-      { href: '/dashboard',    label: 'Core Anchors',    icon: LayoutDashboard },
-      { href: '/kri-register', label: 'Full KRI Book',   icon: List },
-      { href: '/quarterly',    label: 'Quarterly Trends',icon: CalendarDays },
-      { href: '/monthly',      label: 'Monthly Trends',  icon: Calendar },
+      //{ href: '/dashboard',    label: 'Core Anchors',    icon: LayoutDashboard },
+     // { href: '/kri-register', label: 'Full KRI Book',   icon: List },
+     // { href: '/quarterly',    label: 'Quarterly Trends',icon: CalendarDays },
+     // { href: '/monthly',      label: 'Monthly Trends',  icon: Calendar },
     ],
   },
   {
     group: 'Intelligence',
     items: [
-      { href: '/forecasts', label: 'Predictive (90d)', icon: LineChart },
-      { href: '/briefs',    label: 'Board Briefs',     icon: FileText },
+     // { href: '/forecasts', label: 'Predictive (90d)', icon: LineChart },
+      //{ href: '/briefs',    label: 'Board Briefs',     icon: FileText },
     ],
   },
   {
     group: 'Advanced Modeling',
     items: [
-      { href: '/business-stress',  label: 'Business Stress',  icon: BriefcaseBusiness, badge: 'NEW' },
-      { href: '/scenarios',        label: 'Stress Tester',    icon: FlaskConical },
+      //{ href: '/business-stress',  label: 'Business Stress',  icon: BriefcaseBusiness, badge: 'NEW' },
+     // { href: '/scenarios',        label: 'Stress Tester',    icon: FlaskConical },
       { href: '/scenario-automate',label: 'Scenario Automate',icon: FlaskConical },
-      { href: '/compare',          label: 'Scenario Compare', icon: GitCompare },
-      { href: '/reverse',          label: 'Reverse Stress',   icon: ActivitySquare },
-      { href: '/monte-carlo',      label: 'Monte Carlo',      icon: Dices, badge: 'AI' },
+      { href: '/scenario-builder', label: 'Scenario Builder', icon: FlaskConical},  // import from lucide-react 
+      //{ href: '/compare',          label: 'Scenario Compare', icon: GitCompare },
+      //{ href: '/reverse',          label: 'Reverse Stress',   icon: ActivitySquare },
+     // { href: '/monte-carlo',      label: 'Monte Carlo',      icon: Dices, badge: 'AI' },
     ],
   },
   {
@@ -310,8 +311,8 @@ const NAV_ITEMS: NavGroup[] = [
     items: [
       { href: '/news',          label: 'News Feed',       icon: Newspaper,  badge: 'LIVE' },
       { href: '/alerts',        label: 'Risk Alerts',     icon: Bell,       badge: 'LIVE' },
-      { href: '/economics',     label: 'Ghana Macro',     icon: TrendingUp, badge: 'WB'   },
-      { href: '/intelligence',  label: 'Daily Briefing',  icon: Brain,      badge: 'LLM'  },
+      //{ href: '/economics',     label: 'Ghana Macro',     icon: TrendingUp, badge: 'WB'   },
+     // { href: '/intelligence',  label: 'Daily Briefing',  icon: Brain,      badge: 'LLM'  },
       { href: '/tv',            label: 'TV Broadcast',    icon: Tv,         badge: 'AUTO' },
     ],
   },

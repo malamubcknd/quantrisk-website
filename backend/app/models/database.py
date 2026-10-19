@@ -38,8 +38,10 @@ def get_db():
         db.close()
 
 
+
 def init_db():
     """Create all tables if they don't exist."""
     from . import article, risk_score, alert  # noqa: F401 — registers models
     from . import board_brief  # noqa: F401
+    from . import scenario_builder  # noqa: F401  ← ADD THIS LINE
     Base.metadata.create_all(bind=engine)

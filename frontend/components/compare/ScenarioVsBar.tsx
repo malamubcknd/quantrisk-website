@@ -206,28 +206,59 @@ export function ScenarioVsBar({ kpis, comparisons }: ScenarioVsBarProps) {
       }))
     ];
 
+    // ANCHOR_KPIS.forEach(kpiId => {
+    //   const kpi = kpis.find(k => k.id === kpiId);
+    //   if (!kpi) return;
+    //   labels.push(kpiId);
+
+    //   // Populate base value
+    //   if (viewMode === 'pct') {
+    //     datasets[0].data.push(0);
+    //   } else {
+    //     datasets[0].data.push(kpi.fy25Value);
+    //   }
+
+    //   // Populate each active comparison payload
+    //   comparisons.forEach((comp, compIdx) => {
+    //     const res = comp.output.results.find(r => r.kpiId === kpiId);
+    //     if (viewMode === 'pct') {
+    //       datasets[compIdx + 1].data.push(res ? res.deltaPct : 0);
+    //     } else {
+    //       datasets[compIdx + 1].data.push(res ? res.scenarioValue : kpi.fy25Value);
+    //     }
+    //   });
+    // });
     ANCHOR_KPIS.forEach(kpiId => {
       const kpi = kpis.find(k => k.id === kpiId);
       if (!kpi) return;
+
       labels.push(kpiId);
 
       // Populate base value
-      if (viewMode === 'pct') {
-        datasets[0].data.push(0);
-      } else {
-        datasets[0].data.push(kpi.fy25Value);
+      const baseDataset = datasets[0];
+      if (baseDataset) {
+        if (viewMode === 'pct') {
+          baseDataset.data.push(0);
+        } else {
+          baseDataset.data.push(kpi.fy25Value);
+        }
       }
 
       // Populate each active comparison payload
       comparisons.forEach((comp, compIdx) => {
+        const dataset = datasets[compIdx + 1];
+        if (!dataset) return;
+
         const res = comp.output.results.find(r => r.kpiId === kpiId);
+
         if (viewMode === 'pct') {
-          datasets[compIdx + 1].data.push(res ? res.deltaPct : 0);
+          dataset.data.push(res ? res.deltaPct : 0);
         } else {
-          datasets[compIdx + 1].data.push(res ? res.scenarioValue : kpi.fy25Value);
+          dataset.data.push(res ? res.scenarioValue : kpi.fy25Value);
         }
       });
     });
+
 
     return { labels, datasets };
   }, [kpis, comparisons, viewMode]);
@@ -283,10 +314,10 @@ export function ScenarioVsBar({ kpis, comparisons }: ScenarioVsBarProps) {
                 {chartData.labels.map((label, i) => (
                   <tr key={label} className="border-b border-outline/10 hover:bg-surface-container transition-colors">
                     <td className="py-2">{label}</td>
-                    <td className="py-2 text-right text-on-surface-variant">{formatNumber(chartData.datasets[0].data[i] as number)}</td>
+                    <td className="py-2 text-right text-on-surface-variant">{formatNumber(chartData.datasets[0]?.data[i] ?? 0)}</td>
                     {comparisons.map((_, compIdx) => (
                       <td key={compIdx} className="py-2 text-right">
-                        {formatNumber(chartData.datasets[compIdx + 1].data[i] as number)}
+                        {formatNumber(chartData.datasets[compIdx + 1]?.data[i] ?? 0)}
                       </td>
                     ))}
                   </tr>

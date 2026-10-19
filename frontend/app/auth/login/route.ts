@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   // NOTE: cookies are intentionally NOT httpOnly because the client-side API
   // layer (frontend/lib/api.ts) reads the token from document.cookie to attach
   // it as an Authorization: Bearer header to backend requests.
-  const response = relativeRedirect('/dashboard');
+  const response = relativeRedirect('/news');
   response.cookies.set(TOKEN_COOKIE, token, {
     httpOnly: false,
     sameSite: 'lax',

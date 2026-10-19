@@ -3,22 +3,22 @@ from __future__ import annotations
 NLP service — spaCy NER + keyword classifier + HF zero-shot category validation.
 Supports dynamic MTN 2-layer universe mapping (6 Categories, 28 Clean Subcategories + Other).
 """
-
+ 
 import logging
 import os
 import re
 from typing import Optional
-
+ 
 logger = logging.getLogger(__name__)
-
+ 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 _ZEROSHOT_URL = "https://router.huggingface.co/hf-inference/models/facebook/bart-large-mnli"
 _CANDIDATE_LABELS = ["strategic", "governance", "financial", "technology", "operational", "external"]
-
+ 
 # ── spaCy (optional) ──────────────────────────────────────────────────────────
-
+ 
 _nlp = None
-
+ 
 def _get_nlp():
     global _nlp
     if _nlp is None:
@@ -30,24 +30,34 @@ def _get_nlp():
             logger.warning("spaCy not available (%s) — using keyword-only NER", exc)
             _nlp = False
     return _nlp if _nlp else None
-
-
+ 
+ 
 # ── MTN relevance ─────────────────────────────────────────────────────────────
-
+ 
 # MTN_KEYWORDS = [
 #     "MTN", "MoMo", "MTN Ghana", "MTN GH", "MTN Group", "mobile money",
 #     "mtn.com.gh", "MTN Nigeria", "Y'ello",
 # ]
 MTN_KEYWORDS = [
-    "MTN Ghana", "MTN GH", "mtn.com.gh"
+    "MTN Ghana", "MTN GH", "mtn.com.gh","NCA Ghana","National Communications Authority Ghana","Telecom regulation Ghana","SIM Registration Ghana","Telecom Policy Ghana",
+    "Telecommunications Ghana","Telecom operator Ghana","Mobile network operator Ghana","MNO Ghana","Mobile broadband Ghana","Fixed broadband Ghana","FTTH Ghana",
+    "Fiber to the Home Ghana","5G Ghana","4G LTE Ghana","Network expansion Ghana","Network modernization Ghana","Infrastructure sharing Ghana","Tower infrastructure Ghana",
+    "Roaming Ghana","MVNO Ghana","Mobile Virtual Network Operator Ghana","eSIM fraud Ghana","Mobile money fraud Ghana","Subscription fraud Ghana","Telecom fraud Ghana",
+    "SIM swap fraud Ghana","Mobile money Ghana","Telecom Ghana","NCA Ghana","National Communications Authority Ghana","Data Protection Commission Ghana","Bank of Ghana",
+    "Cyber Security Authority Ghana","Ministry of Communications Ghana","Ghana telecom market","Mobile money interoperability Ghana","SIM registration Ghana",
+    "Digital Ghana Agenda","Spectrum Ghana","Cybersecurity Ghana","Data Protection Ghana","KYC Ghana","eSIM Ghana","Fraud Ghana","SIM Swap Ghana","AML Ghana",
+    "Consumer Protection Ghana","Regulatory Compliance Ghana","Digital Identity Ghana","Financial Crime Ghana","Telecommunications Regulation Ghana","Network Security Ghana",
+    "Electronic Communications Act 2008 Act 775 Ghana","Data Protection Act 2012 Act 843 Ghana","Cybersecurity Act 2020 Act 1038 Ghana","Telecom regulation Ghana",
+    "Spectrum licensing Ghana","Quality of Service Ghana","National Communications Authority Ghana","Telecommunications law Ghana","Telecommunications policy Ghana",
+    "Telecommunications compliance Ghana","Telecommunications licensing Ghana","Telecommunications cybersecurity Ghana","Telecommunications consumer protection Ghana"
 ]
-
+ 
 GHANA_KEYWORDS = [
     "Ghana", "Accra", "Kumasi", "Cedi", "GHS", "NCA", "Bank of Ghana",
     "BoG", "AirtelTigo", "Vodafone Ghana", "telecom Ghana",
 ]
-
-
+ 
+ 
 # def compute_mtn_relevance(text: str) -> float:
 #     """
 #     Returns 0.0–1.0 based on how many MTN/Ghana keywords appear.
@@ -58,34 +68,34 @@ GHANA_KEYWORDS = [
 #     ghana_hits = sum(1 for kw in GHANA_KEYWORDS if kw.lower() in text_lower)
 #     score = min(1.0, (mtn_hits * 0.35) + (ghana_hits * 0.1) + 0.1)
 #     return round(score, 3)
-
+ 
 def compute_mtn_relevance(text: str) -> float:
     """
-    STRICT RULE: Only news with BOTH "MTN" and "GHANA" in the text 
+    STRICT RULE: Only news with BOTH "MTN" and "GHANA" in the text
     (in no particular order) will survive. Otherwise returns 0.0.
     """
     text_lower = text.lower()
-    
+   
     # Check for mandatory presence of both words
     has_mtn = "mtn" in text_lower
     has_ghana = "ghana" in text_lower
-    
+   
     if not (has_mtn and has_ghana):
         # If either is missing, relevance is 0. Article will be ignored/filtered out.
         return 0.0
-
+ 
     # If both exist, compute the dynamic score for sorting/prioritization
     mtn_hits = sum(1 for kw in MTN_KEYWORDS if kw.lower() in text_lower)
     ghana_hits = sum(1 for kw in GHANA_KEYWORDS if kw.lower() in text_lower)
-    
+   
     # We guarantee a minimum relevance since it passed the strict check
     score = min(1.0, (mtn_hits * 0.35) + (ghana_hits * 0.1) + 0.3)
     return round(score, 3)
-
-
-
+ 
+ 
+ 
 # ── Risk taxonomy classification (2-layer MTN Universe - No Numbering) ─────────
-
+ 
 TAXONOMY = {
     "strategic": {
         "Strategic & Execution": [
@@ -213,7 +223,7 @@ TAXONOMY = {
         ]
     }
 }
-
+ 
 CATEGORY_WEIGHTS = {
     "strategic": 1.2,
     "financial": 1.1,
@@ -222,8 +232,8 @@ CATEGORY_WEIGHTS = {
     "governance": 0.9,
     "external": 0.8,
 }
-
-
+ 
+ 
 # def classify_risk_category_and_subcategory(text: str) -> tuple[str, str, float, dict]:
 #     """
 #     Classifies risk into one of MTN's 6 categories and 28 subcategories (names without number prefixes).
@@ -231,7 +241,7 @@ CATEGORY_WEIGHTS = {
 #     """
 #     text_lower = text.lower()
 #     subcat_hits = {}
-
+ 
 #     for cat, subcats in TAXONOMY.items():
 #         for subcat, keywords in subcats.items():
 #             count = 0
@@ -239,35 +249,35 @@ CATEGORY_WEIGHTS = {
 #                 pattern = re.compile(r'\b' + re.escape(kw.lower()) + r'\b')
 #                 count += len(pattern.findall(text_lower))
 #             subcat_hits[subcat] = count
-
+ 
 #     best_subcat = None
 #     best_subcat_count = 0
 #     for subcat, count in subcat_hits.items():
 #         if count > best_subcat_count:
 #             best_subcat_count = count
 #             best_subcat = subcat
-
+ 
 #     if best_subcat_count == 0 or not best_subcat:
 #         return "other", "Other", 1.0, subcat_hits
-
+ 
 #     best_cat = "other"
 #     for cat, subcats in TAXONOMY.items():
 #         if best_subcat in subcats:
 #             best_cat = cat
 #             break
-
+ 
 #     weight = CATEGORY_WEIGHTS.get(best_cat, 1.0)
 #     raw_score = min(10.0, best_subcat_count * 1.5 * weight)
 #     return best_cat, best_subcat, round(raw_score, 2), subcat_hits
 import math # <-- ADD THIS IMPORT AT THE TOP OF nlp_service.py
-
+ 
 def classify_risk_category_and_subcategory(text: str) -> tuple[str, str, float, dict]:
     """
     Classifies risk into one of MTN's categories using logarithmic diminishing returns.
     """
     text_lower = text.lower()
     subcat_hits = {}
-
+ 
     for cat, subcats in TAXONOMY.items():
         for subcat, keywords in subcats.items():
             count = 0
@@ -275,34 +285,34 @@ def classify_risk_category_and_subcategory(text: str) -> tuple[str, str, float, 
                 pattern = re.compile(r'\b' + re.escape(kw.lower()) + r'\b')
                 count += len(pattern.findall(text_lower))
             subcat_hits[subcat] = count
-
+ 
     best_subcat = None
     best_subcat_count = 0
     for subcat, count in subcat_hits.items():
         if count > best_subcat_count:
             best_subcat_count = count
             best_subcat = subcat
-
+ 
     if best_subcat_count == 0 or not best_subcat:
         return "other", "Other", 1.0, subcat_hits
-
+ 
     best_cat = "other"
     for cat, subcats in TAXONOMY.items():
         if best_subcat in subcats:
             best_cat = cat
             break
-
+ 
     weight = CATEGORY_WEIGHTS.get(best_cat, 1.0)
-    
+   
     # REAL-WORLD MATH: Logarithmic diminishing returns.
     # 1 hit = ~2.0, 3 hits = ~4.0, 7 hits = ~6.0. Caps naturally, prevents long-article spam.
-    log_score = math.log2(best_subcat_count + 1) * 2.0 
+    log_score = math.log2(best_subcat_count + 1) * 2.0
     raw_score = min(10.0, log_score * weight)
-    
+   
     return best_cat, best_subcat, round(raw_score, 2), subcat_hits
-
+ 
 # ── spaCy NER ─────────────────────────────────────────────────────────────────
-
+ 
 # def extract_entities(text: str) -> dict:
 #     nlp = _get_nlp()
 #     if nlp:
@@ -316,22 +326,22 @@ def classify_risk_category_and_subcategory(text: str) -> tuple[str, str, float, 
 #             }
 #         except Exception as exc:
 #             logger.warning("spaCy NER failed: %s", exc)
-
+ 
 #     text_lower = text.lower()
 #     # orgs = [kw for kw in ["MTN", "NCA", "Bank of Ghana", "Vodafone", "AirtelTigo", "GRA", "IMF"]
 #     orgs = [kw for kw in ["MTN Ghana", "MTN GH"]
 #             if kw.lower() in text_lower]
 #     return {"orgs": orgs, "money": [], "locations": [], "persons": []}
-
+ 
 def extract_entities(text: str) -> dict:
     nlp = _get_nlp()
     entities = {
-        "orgs": [], 
-        "money": [], 
-        "locations": [], 
+        "orgs": [],
+        "money": [],
+        "locations": [],
         "persons": []
     }
-
+ 
     # 1. Let spaCy find dynamic entities if available
     if nlp:
         try:
@@ -342,23 +352,23 @@ def extract_entities(text: str) -> dict:
             entities["persons"] = [ent.text for ent in doc.ents if ent.label_ == "PERSON"][:10]
         except Exception as exc:
             logger.warning("spaCy NER failed: %s", exc)
-
+ 
     # 2. STRICT RULE: Always ensure "MTN Ghana" is the first Named Entity Organization
     if "MTN Ghana" not in entities["orgs"]:
         entities["orgs"].insert(0, "MTN Ghana")
-    
+   
     # 3. Deduplicate lists just in case spaCy also found "MTN Ghana"
     entities["orgs"] = list(dict.fromkeys(entities["orgs"]))
     entities["money"] = list(dict.fromkeys(entities["money"]))
     entities["locations"] = list(dict.fromkeys(entities["locations"]))
     entities["persons"] = list(dict.fromkeys(entities["persons"]))
-
+ 
     return entities
-
-
-
+ 
+ 
+ 
 # ── HF Zero-shot category classifier ─────────────────────────────────────────
-
+ 
 def _hf_zeroshot_category(text: str) -> dict | None:
     if not HF_TOKEN:
         return None
@@ -386,16 +396,16 @@ def _hf_zeroshot_category(text: str) -> dict | None:
     except Exception as exc:
         logger.debug("HF zero-shot failed: %s", exc)
         return None
-
-
+ 
+ 
 # ── Main entry point ──────────────────────────────────────────────────────────
-
+ 
 # def run_nlp(title: str, body: str) -> dict:
 #     full_text = f"{title} {body}"
 #     mtn_relevance = compute_mtn_relevance(full_text)
 #     kw_category, kw_subcategory, kw_severity, subcat_hits = classify_risk_category_and_subcategory(full_text)
 #     entities = extract_entities(full_text)
-
+ 
 #     zs = _hf_zeroshot_category(full_text[:800])
 #     if zs and zs["scores"].get(zs["category"], 0) > 0.80:
 #         category = zs["category"]
@@ -407,7 +417,7 @@ def _hf_zeroshot_category(text: str) -> dict | None:
 #                 best_sub_cnt = subcat_hits[sub]
 #                 best_sub = sub
 #         subcategory = best_sub
-        
+       
 #         zs_conf = zs["scores"][category]
 #         severity = round(kw_severity * 0.6 + (zs_conf * 10) * 0.4, 2)
 #         confidence = round(min(1.0, zs_conf * 0.8 + 0.2), 3)
@@ -417,7 +427,7 @@ def _hf_zeroshot_category(text: str) -> dict | None:
 #         severity = kw_severity
 #         best_hits = subcat_hits.get(subcategory, 0)
 #         confidence = min(1.0, best_hits * 0.15 + 0.2)
-
+ 
 #     return {
 #         "mtn_relevance": mtn_relevance,
 #         "category": category,
@@ -427,13 +437,13 @@ def _hf_zeroshot_category(text: str) -> dict | None:
 #         "entities": entities,
 #         "keyword_hits": subcat_hits,
 #     }
-
+ 
 def run_nlp(title: str, body: str) -> dict:
     full_text = f"{title} {body}"
     mtn_relevance = compute_mtn_relevance(full_text)
     kw_category, kw_subcategory, kw_severity, subcat_hits = classify_risk_category_and_subcategory(full_text)
     entities = extract_entities(full_text)
-
+ 
     zs = _hf_zeroshot_category(full_text[:800])
     if zs and zs["scores"].get(zs["category"], 0) > 0.80:
         category = zs["category"]
@@ -445,7 +455,7 @@ def run_nlp(title: str, body: str) -> dict:
                 best_sub_cnt = subcat_hits[sub]
                 best_sub = sub
         subcategory = best_sub
-        
+       
         zs_conf = zs["scores"][category]
         severity = round(kw_severity * 0.5 + (zs_conf * 10) * 0.5, 2)
         confidence = round(min(1.0, zs_conf * 0.8 + 0.2), 3)
@@ -455,10 +465,10 @@ def run_nlp(title: str, body: str) -> dict:
         severity = kw_severity
         best_hits = subcat_hits.get(subcategory, 0)
         confidence = min(1.0, best_hits * 0.15 + 0.2)
-
-    # Note: Sentiment is actually computed AFTER this by pipeline_service.py, 
+ 
+    # Note: Sentiment is actually computed AFTER this by pipeline_service.py,
     # but the severity and relevance calculated here are perfect and mathematically sound now.
-
+ 
     return {
         "mtn_relevance": mtn_relevance,
         "category": category,
@@ -468,3 +478,4 @@ def run_nlp(title: str, body: str) -> dict:
         "entities": entities,
         "keyword_hits": subcat_hits,
     }
+ 

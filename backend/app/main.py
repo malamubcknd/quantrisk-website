@@ -112,6 +112,12 @@ from .api.routes import router
 from .api.auth import router as auth_router
 from .core.security import get_current_user
 
+# Add to backend/app/main.py (or wherever you register routers)
+# Add this import and include_router call:
+
+from app.api.scenario_builder_routes import router as scenario_builder_router
+
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -218,6 +224,10 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(
     router,
+    dependencies=[Depends(get_current_user)],
+)
+app.include_router(
+    scenario_builder_router,
     dependencies=[Depends(get_current_user)],
 )
 

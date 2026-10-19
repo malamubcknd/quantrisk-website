@@ -505,11 +505,20 @@ export default function ComparePage() {
     if (state.comparisonA && outputA) items.push({ label: 'A', scenario: state.comparisonA, output: outputA });
     if (state.comparisonB && outputB) items.push({ label: 'B', scenario: state.comparisonB, output: outputB });
     
+    // for (let i = 2; i < 10; i++) {
+    //   const scenario = extraScenarios[i];
+    //   const output = extraOutputs[i];
+    //   if (scenario && output) {
+    //     items.push({ label: SLOT_LABELS[i], scenario, output });
+    //   }
+    // }
     for (let i = 2; i < 10; i++) {
       const scenario = extraScenarios[i];
       const output = extraOutputs[i];
-      if (scenario && output) {
-        items.push({ label: SLOT_LABELS[i], scenario, output });
+      const label = SLOT_LABELS[i];
+
+      if (scenario && output && label !== undefined) {
+        items.push({ label, scenario, output });
       }
     }
     return items;

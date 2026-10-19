@@ -69,5 +69,5 @@ export async function loginAction(
     maxAge: data.expires_in ?? 28800,
   })
 
-  redirect('/dashboard')
+  redirect('/news')
 }
