@@ -299,7 +299,7 @@ const NAV_ITEMS: NavGroup[] = [
     items: [
       //{ href: '/business-stress',  label: 'Business Stress',  icon: BriefcaseBusiness, badge: 'NEW' },
      // { href: '/scenarios',        label: 'Stress Tester',    icon: FlaskConical },
-      { href: '/scenario-automate',label: 'Scenario Automate',icon: FlaskConical },
+     // { href: '/scenario-automate',label: 'Scenario Automate',icon: FlaskConical },
       { href: '/scenario-builder', label: 'Scenario Builder', icon: FlaskConical},  // import from lucide-react 
       //{ href: '/compare',          label: 'Scenario Compare', icon: GitCompare },
       //{ href: '/reverse',          label: 'Reverse Stress',   icon: ActivitySquare },
