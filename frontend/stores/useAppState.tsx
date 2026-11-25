@@ -6,7 +6,7 @@ import {
   ForecastPoint, MonteCarloResult, BoardBrief, PipelineHealth 
 } from '@/lib/types';
 import { GlobalVariables, AllScenarioInputs } from '@/lib/scenarioAutomate/types';
-import { User } from '@/lib/auth';
+import { User, forceLogout, getAccessToken, getTokenExpiry } from '@/lib/auth';
 import { fetchCurrentUser } from '@/lib/api';
 
 export interface AppState {
@@ -105,32 +105,57 @@ const AppStateContext = createContext<{ state: AppState; dispatch: React.Dispatc
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
 
-  // Check auth status from FastAPI backend on load
+  // Check auth status from FastAPI backend on load, then keep re-checking so an
+  // expired / revoked session logs the user out instead of lingering.
   useEffect(() => {
     let isMounted = true;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    async function checkAuth() {
-      dispatch({ type: 'SET_AUTH_LOADING', payload: true });
-      try {
-        const user = await fetchCurrentUser();
-        if (isMounted) {
-          dispatch({ type: 'SET_CURRENT_USER', payload: user });
-        }
-      } catch {
-        if (isMounted) {
-          dispatch({ type: 'SET_CURRENT_USER', payload: null });
-        }
-      } finally {
-        if (isMounted) {
-          dispatch({ type: 'SET_AUTH_LOADING', payload: false });
-        }
+    function scheduleExpiryLogout() {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      const exp = getTokenExpiry(getAccessToken());
+      if (exp === null) return;
+      const ms = exp * 1000 - Date.now();
+      // setTimeout overflows above ~24.8 days; the interval check covers that case
+      if (ms < 2_147_000_000) {
+        expiryTimer = setTimeout(() => void forceLogout('expired'), Math.max(ms, 0));
       }
     }
 
-    checkAuth();
+    async function checkAuth(initial: boolean) {
+      if (initial) dispatch({ type: 'SET_AUTH_LOADING', payload: true });
+      let user: User | null = null;
+      try {
+        user = await fetchCurrentUser();
+      } catch {
+        user = null;
+      }
+      if (!isMounted) return;
+      if (!user) {
+        dispatch({ type: 'SET_CURRENT_USER', payload: null });
+        void forceLogout('expired');
+        return;
+      }
+      dispatch({ type: 'SET_CURRENT_USER', payload: user });
+      if (initial) dispatch({ type: 'SET_AUTH_LOADING', payload: false });
+      scheduleExpiryLogout();
+    }
+
+    void checkAuth(true);
+
+    const interval = setInterval(() => void checkAuth(false), 5 * 60 * 1000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkAuth(false);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
 
     return () => {
       isMounted = false;
+      clearInterval(interval);
+      if (expiryTimer) clearTimeout(expiryTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   }, []);
 

@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { fetchTvSlideshow, TvSlideshowData } from '@/lib/api';
+import { fetchSoWhatLines, type SoWhatLine } from '@/lib/tvSoWhat';
 import { 
   Play, Pause, ChevronLeft, ChevronRight, Tv, Shield, Briefcase, 
-  TrendingUp, Cpu, Wifi, Globe, Radio, RefreshCw, Clock, Maximize, Minimize, CheckCircle
+  TrendingUp, Cpu, Wifi, Globe, Radio, RefreshCw, Clock, Maximize, Minimize, CheckCircle, Target
 } from 'lucide-react';
 
 interface TvNewsItem {
@@ -17,6 +18,7 @@ interface TvNewsItem {
   mtnRelevance: number;
   sentiment: string;
   subcategory: string;
+  soWhat?: SoWhatLine | null;
 }
 
 interface TvAlertItem {
@@ -29,6 +31,7 @@ interface TvAlertItem {
   sourceName: string;
   createdAt: string | null;
   subcategory: string;
+  soWhat?: SoWhatLine | null;
 }
 
 interface SlideItem {
@@ -49,6 +52,13 @@ const CATEGORY_META: Record<string, { label: string; color: string; bg: string; 
   Other:        { label: 'Other Risk',        color: 'text-gray-400',   bg: 'bg-gray-900/40', border: 'border-gray-500/30', icon: <Radio className="w-6 h-6 text-gray-400" /> },
 };
 
+const IMPACT_CHIP: Record<string, { label: string; cls: string }> = {
+  positive: { label: 'Positive', cls: 'text-green-400 bg-green-400/10 border-green-400/30' },
+  negative: { label: 'Negative', cls: 'text-red-400 bg-red-400/10 border-red-400/30' },
+  mixed:    { label: 'Mixed',    cls: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30' },
+  neutral:  { label: 'Neutral',  cls: 'text-slate-300 bg-slate-400/10 border-slate-400/30' },
+};
+
 function chunkArray<T>(array: T[], size: number): T[][] {
   const result: T[][] = [];
   for (let i = 0; i < array.length; i += size) {
@@ -66,8 +76,27 @@ function fmtDate(iso: string | null | undefined): string {
   }
 }
 
+/** One-line "SO WHAT" strip shown under the summary of a news item or alert. */
+function SoWhatStrip({ line }: { line: SoWhatLine | null | undefined }) {
+  if (!line) return null;
+  const chip = (IMPACT_CHIP[line.impact] ?? IMPACT_CHIP['neutral'])!;
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] px-4 py-3">
+      <div className="flex items-center gap-2 shrink-0 pt-0.5">
+        <Target className="w-4 h-4 text-emerald-400" />
+        <span className="text-xs font-mono font-black uppercase tracking-widest text-emerald-400">What we should do</span>
+        <span className={`px-2 py-0.5 rounded-md border font-mono text-[10px] font-extrabold uppercase tracking-wide ${chip.cls}`}>
+          {chip.label}
+        </span>
+      </div>
+      <p className="text-sm font-semibold text-white leading-snug line-clamp-2">{line.text}</p>
+    </div>
+  );
+}
+
 export default function TvPage() {
   const [data, setData] = useState<TvSlideshowData | null>(null);
+  const [soWhatById, setSoWhatById] = useState<Record<string, SoWhatLine>>({});
   const [days, setDays] = useState<number>(10);
   const [loading, setLoading] = useState<boolean>(true);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -79,12 +108,16 @@ export default function TvPage() {
   const slideDuration = 60000; // 60 seconds
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch Slideshow Items
+  // Fetch Slideshow Items (+ the short "so what" lines, in parallel)
   const loadData = useCallback(async (selectedDays: number) => {
     setLoading(true);
     try {
-      const res = await fetchTvSlideshow(selectedDays);
+      const [res, lines] = await Promise.all([
+        fetchTvSlideshow(selectedDays),
+        fetchSoWhatLines().catch(() => ({} as Record<string, SoWhatLine>)),
+      ]);
       setData(res);
+      setSoWhatById(lines);
       setActiveSlideIndex(0);
       setProgress(0);
     } catch (e) {
@@ -113,8 +146,17 @@ export default function TvPage() {
     const computedSlides: SlideItem[] = [];
 
     Object.entries(data.categories).forEach(([categoryName, content]) => {
-      const newsChunks = chunkArray(content.news || [], 3);
-      const alertChunks = chunkArray(content.alerts || [], 3);
+      const newsWithSoWhat: TvNewsItem[] = (content.news || []).map(n => ({
+        ...n,
+        soWhat: soWhatById[`news:${n.id}`] ?? null,
+      }));
+      const alertsWithSoWhat: TvAlertItem[] = (content.alerts || []).map(a => ({
+        ...a,
+        soWhat: soWhatById[`alert:${a.id}`] ?? null,
+      }));
+
+      const newsChunks = chunkArray(newsWithSoWhat, 3);
+      const alertChunks = chunkArray(alertsWithSoWhat, 3);
       
       const totalSlidesForCategory = Math.max(newsChunks.length, alertChunks.length);
       
@@ -130,7 +172,7 @@ export default function TvPage() {
     });
 
     return computedSlides;
-  }, [data]);
+  }, [data, soWhatById]);
 
   // Handle slide transitions
   const handleNext = useCallback(() => {
@@ -312,9 +354,11 @@ export default function TvPage() {
                         <p className="text-xs font-mono text-white/40">
                           {item.sourceName} &nbsp;·&nbsp; {fmtDate(item.publishedAt)}
                         </p>
-                        <div className="text-base text-white/90 leading-relaxed bg-[#1b1c2b]/30 p-5 rounded-xl border-l-4 border-mtn-yellow font-sans">
+                        {/* Summary is capped at 4 lines so the SO WHAT line below always fits on screen */}
+                        <div className="text-base text-white/90 leading-relaxed bg-[#1b1c2b]/30 p-5 rounded-xl border-l-4 border-mtn-yellow font-sans line-clamp-4">
                           {item.summary}
                         </div>
+                        <SoWhatStrip line={item.soWhat} />
                       </div>
                     ))}
                   </div>
@@ -360,9 +404,12 @@ export default function TvPage() {
                           <span className="text-red-400 font-bold">Severity: {item.severity.toFixed(1)}/10</span>
                         </div>
 
-                        <div className="text-sm text-red-100/90 leading-relaxed bg-[#250d0d]/40 p-4.5 rounded-xl border-l-4 border-red-500">
+                        {/* Summary is capped at 3 lines so the SO WHAT line below always fits on screen */}
+                        <div className="text-sm text-red-100/90 leading-relaxed bg-[#250d0d]/40 p-4.5 rounded-xl border-l-4 border-red-500 line-clamp-3">
                           {item.summary}
                         </div>
+
+                        <SoWhatStrip line={item.soWhat} />
 
                         {item.impactGhsMid != null && (
                           <div className="flex items-center justify-between text-xs font-mono pt-1">
@@ -417,7 +464,7 @@ export default function TvPage() {
         <div className="flex items-center gap-6">
           <div className="text-xs text-white/30 font-mono flex items-center gap-2.5">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block animate-pulse" />
-            QuantRisk Auto-Publish System Active · Cycling Category Batches Every 30s
+            QuantRisk Auto-Publish System Active · Cycling Category Batches Every {slideDuration / 1000}s
           </div>
           
           {/* Cinema mode toggler */}

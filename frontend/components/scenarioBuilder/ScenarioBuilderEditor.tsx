@@ -4041,6 +4041,7 @@ import {
   AlertTriangle, ChevronDown, ChevronRight, Info, Variable,
   FunctionSquare, ShieldAlert, Zap, TrendingUp, Settings2,
   Eye, FlaskConical, Delete, Lock, TableProperties, Pencil,
+  Upload, Download, FileSpreadsheet, HelpCircle, X, Loader2,
 } from 'lucide-react';
 import {
   getConfig, updateConfig, computeConfig,
@@ -4048,6 +4049,8 @@ import {
   type ScenarioItem, type ScenarioOverride, type ScenarioVariable,
   type TableConfig, type ComputedResults,
   type WeightedMetric, type SectionMetric, type SectionKey,
+  type VariablesSource, type ParsedVariablesExcel,
+  parseVariablesExcel, downloadVariablesTemplate,
 } from '@/lib/scenarioBuilder';
 import { evaluateFormula, normalizeName } from '@/lib/scenarioBuilder/formulaEngine';
 import { SBResultsView } from '@/components/scenarioBuilder/SBResultsView';
@@ -4376,6 +4379,58 @@ function StepBadge({ step, label, active, completed, issues = 0, onClick }: {
 
 // ── Variable Row ──────────────────────────────────────────────────────────
 
+/**
+ * Number field that keeps exactly what the user types ("0", "0.", ".6", "-0.2") while
+ * typing, and only reports a number once the text is a valid number.
+ * A plain controlled <input type="number"> with `value || ''` hides 0 and drops "0.".
+ */
+const PARTIAL_NUMBER = /^-?\d*\.?\d*$/;
+
+function NumberInput({ value, onChange, placeholder, className }: {
+  value: number;
+  onChange: (value: number) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(() => String(value ?? 0));
+  const [lastValue, setLastValue] = useState(value);
+
+  // Value changed from outside (Excel import, reload) → show the new value
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (Number(draft) !== value || draft.trim() === '') setDraft(String(value));
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      value={draft}
+      onFocus={e => e.target.select()}
+      onChange={e => {
+        const text = e.target.value.replace(',', '.').trim();
+        if (!PARTIAL_NUMBER.test(text)) return;        // ignore letters etc.
+        setDraft(text);
+        const n = Number(text);
+        // "", "-", "." and "-." are unfinished → treat as 0 until a digit is typed
+        const next = text === '' || text === '-' || text === '.' || text === '-.' ? 0 : n;
+        if (Number.isFinite(next)) {
+          setLastValue(next);
+          onChange(next);
+        }
+      }}
+      onBlur={() => {
+        // Tidy unfinished input like "-", "." or "0." when leaving the field
+        const n = Number(draft);
+        const clean = Number.isFinite(n) && draft !== '' && draft !== '-' && draft !== '.' && draft !== '-.' ? n : 0;
+        setDraft(String(clean));
+      }}
+      className={className}
+    />
+  );
+}
+
 function VariableRow({ item, index, nameError, onChange, onDelete }: {
   item: VariableItem; index: number;
   nameError?: string | null;
@@ -4395,11 +4450,10 @@ function VariableRow({ item, index, nameError, onChange, onDelete }: {
             nameError ? 'border-red-500/50 focus:border-red-500/70' : 'border-outline/20 focus:border-mtn-yellow/50'
           }`}
         />
-        <input
-          type="number"
+        <NumberInput
           placeholder="Value"
-          value={item.value || ''}
-          onChange={e => onChange(index, 'value', parseFloat(e.target.value) || 0)}
+          value={item.value}
+          onChange={n => onChange(index, 'value', n)}
           className="w-32 px-3 py-2 rounded-lg bg-surface-container border border-outline/20 text-sm text-on-surface placeholder:text-on-surface-variant/40 focus:border-mtn-yellow/50 focus:outline-none font-mono text-right"
         />
         <input
@@ -4417,6 +4471,220 @@ function VariableRow({ item, index, nameError, onChange, onDelete }: {
         </button>
       </div>
       {nameError && <div className="pl-5"><FieldError message={nameError} /></div>}
+    </div>
+  );
+}
+
+// ── Excel import (Step 1) ─────────────────────────────────────────────────
+
+function formatUploadTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function ExcelImportPanel({ source, existingCount, onImport }: {
+  source: VariablesSource | null;
+  existingCount: number;
+  onImport: (parsed: ParsedVariablesExcel, mode: 'replace' | 'merge') => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'upload' | 'template' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState<ParsedVariablesExcel | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [showHelp, setShowHelp] = useState(false);
+
+  const apply = (parsed: ParsedVariablesExcel, mode: 'replace' | 'merge') => {
+    onImport(parsed, mode);
+    setPending(null);
+    setWarnings(parsed.warnings);
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setErr(null);
+    setWarnings([]);
+    setPending(null);
+    setBusy('upload');
+    try {
+      const parsed = await parseVariablesExcel(file);
+      if (existingCount > 0) setPending(parsed);   // ask before touching typed-in variables
+      else apply(parsed, 'replace');
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setBusy(null);
+      if (fileRef.current) fileRef.current.value = '';   // allow re-uploading the same file
+    }
+  };
+
+  const handleTemplate = async () => {
+    setErr(null);
+    setBusy('template');
+    try {
+      await downloadVariablesTemplate();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Template download failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-outline/15 bg-surface-container/40 p-3 mb-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="w-4 h-4 text-green-400 shrink-0" />
+        <div className="flex-1 min-w-[12rem]">
+          <p className="font-sans text-xs font-semibold text-on-surface">Import variables from Excel</p>
+          <p className="text-[11px] text-on-surface-variant">
+            Columns: <span className="font-mono text-on-surface">variable_name</span>,{' '}
+            <span className="font-mono text-on-surface">value</span>,{' '}
+            <span className="font-mono text-on-surface">description</span> (optional)
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleTemplate}
+            disabled={busy !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline/20 text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors font-mono text-[10px] uppercase tracking-widest disabled:opacity-50"
+          >
+            {busy === 'template' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Download Template
+          </button>
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy !== null}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors font-mono text-[10px] uppercase tracking-widest disabled:opacity-50"
+          >
+            {busy === 'upload' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            {busy === 'upload' ? 'Reading…' : 'Upload Excel'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xlsm,.csv"
+            className="hidden"
+            onChange={e => handleFile(e.target.files?.[0])}
+          />
+        </div>
+      </div>
+
+      {/* Basis of the current variables */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="font-mono text-[9px] uppercase tracking-widest text-on-surface-variant">Basis:</span>
+        {source?.type === 'excel' ? (
+          <>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-green-500/10 border border-green-500/30 text-green-400 font-mono text-[10px]">
+              <FileSpreadsheet className="w-3 h-3" /> Excel upload
+            </span>
+            <span className="font-mono text-on-surface break-all">{source.filename}</span>
+            <span className="text-on-surface-variant">
+              · {source.row_count} variable{source.row_count === 1 ? '' : 's'}
+              {source.mode === 'merge' ? ' merged into existing list' : ''}
+              {' '}· uploaded {formatUploadTime(source.uploaded_at)}
+            </span>
+            {source.edited_after_upload && (
+              <span className="px-2 py-0.5 rounded bg-mtn-yellow/10 border border-mtn-yellow/30 text-mtn-yellow font-mono text-[10px]">
+                edited manually since upload
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="px-2 py-0.5 rounded bg-surface-container border border-outline/20 text-on-surface-variant font-mono text-[10px]">
+            Manual entry
+          </span>
+        )}
+      </div>
+
+      {/* Replace / merge choice when variables already exist */}
+      {pending && (
+        <div className="rounded-lg border border-mtn-yellow/30 bg-mtn-yellow/5 p-3 space-y-2">
+          <p className="text-xs text-on-surface">
+            <span className="font-mono">{pending.filename}</span> contains {pending.row_count} variable
+            {pending.row_count === 1 ? '' : 's'}. You already have {existingCount}. What should happen?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => apply(pending, 'replace')}
+              className="px-3 py-1.5 rounded-lg bg-mtn-yellow text-black font-mono text-[10px] uppercase tracking-widest font-bold"
+            >
+              Replace all
+            </button>
+            <button
+              onClick={() => apply(pending, 'merge')}
+              className="px-3 py-1.5 rounded-lg border border-mtn-yellow/40 text-mtn-yellow font-mono text-[10px] uppercase tracking-widest"
+            >
+              Merge (update matching names, add new)
+            </button>
+            <button
+              onClick={() => setPending(null)}
+              className="px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-mono text-[10px] uppercase tracking-widest"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {err && (
+        <div className="flex gap-2 rounded-lg bg-error/10 border border-error/30 p-2.5">
+          <AlertTriangle className="w-3.5 h-3.5 text-error shrink-0 mt-0.5" />
+          <p className="text-xs text-error">{err}</p>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="rounded-lg bg-mtn-yellow/5 border border-mtn-yellow/20 p-2.5">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-mtn-yellow shrink-0 mt-0.5" />
+            <div className="flex-1 text-[11px] text-on-surface-variant space-y-0.5">
+              <p className="text-mtn-yellow font-semibold">
+                Imported with {warnings.length} row{warnings.length === 1 ? '' : 's'} skipped:
+              </p>
+              {warnings.map((w, i) => <p key={i}>{w}</p>)}
+            </div>
+            <button onClick={() => setWarnings([])} className="text-on-surface-variant hover:text-on-surface">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* How-to */}
+      <div>
+        <button
+          onClick={() => setShowHelp(h => !h)}
+          className="flex items-center gap-1.5 text-[11px] text-on-surface-variant hover:text-mtn-yellow transition-colors"
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
+          How to upload an Excel file
+          {showHelp ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
+        {showHelp && (
+          <ol className="mt-2 ml-5 list-decimal space-y-1 text-[11px] text-on-surface-variant leading-relaxed">
+            <li>Click <strong className="text-on-surface">Download Template</strong> and open it in Excel.</li>
+            <li>
+              On the <strong className="text-on-surface">Variables</strong> sheet, add one variable per row from row 2.
+              Keep the header row exactly as it is.
+            </li>
+            <li>
+              <span className="font-mono text-on-surface">variable_name</span>: letters, numbers and underscores,
+              starting with a letter (e.g. <span className="font-mono">revenue</span>, <span className="font-mono">opex_2025</span>). Each name must be unique.
+            </li>
+            <li>
+              <span className="font-mono text-on-surface">value</span>: a plain number. Commas are fine, and
+              <span className="font-mono"> 12%</span> is read as <span className="font-mono">0.12</span>.
+            </li>
+            <li><span className="font-mono text-on-surface">description</span>: optional notes.</li>
+            <li>
+              Save as <strong className="text-on-surface">.xlsx</strong>, then click <strong className="text-on-surface">Upload Excel</strong>.
+              The rows appear below. Check them and edit any value if needed; changes save automatically.
+            </li>
+          </ol>
+        )}
+      </div>
     </div>
   );
 }
@@ -4970,10 +5238,9 @@ function ScenarioCard({ scenario, allVariableNames, derivedNames, onUpdate, onDe
                       <option key={v} value={v}>{v}</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={ov.value || ''}
-                    onChange={e => updateOverride(idx, 'value', parseFloat(e.target.value) || 0)}
+                  <NumberInput
+                    value={ov.value}
+                    onChange={n => updateOverride(idx, 'value', n)}
                     placeholder="Override value"
                     className="w-28 px-2 py-1.5 rounded-lg bg-surface-container border border-outline/20 text-xs text-on-surface font-mono text-right focus:outline-none"
                   />
@@ -5021,10 +5288,9 @@ function ScenarioCard({ scenario, allVariableNames, derivedNames, onUpdate, onDe
                           sv.name.trim() && !issue ? 'border-outline/20' : 'border-red-500/40'
                         }`}
                       />
-                      <input
-                        type="number"
-                        value={sv.value || ''}
-                        onChange={e => updateScenarioVariable(idx, 'value', parseFloat(e.target.value) || 0)}
+                      <NumberInput
+                        value={sv.value}
+                        onChange={n => updateScenarioVariable(idx, 'value', n)}
                         placeholder="Value"
                         className="w-28 px-2 py-1.5 rounded-lg bg-surface-container border border-outline/20 text-xs text-on-surface font-mono text-right focus:outline-none"
                       />
@@ -5427,6 +5693,7 @@ export function ScenarioBuilderEditor({ configId, onBack }: { configId: number; 
     weighted_metrics: [],
     section_tables: {},
   });
+  const [variablesSource, setVariablesSource] = useState<VariablesSource | null>(null);
 
   // Load config
   useEffect(() => {
@@ -5449,6 +5716,7 @@ export function ScenarioBuilderEditor({ configId, onBack }: { configId: number; 
           weighted_metrics: tc?.weighted_metrics ?? [],
           section_tables: tc?.section_tables ?? {},
         });
+        setVariablesSource(tc?.variables_source ?? null);
         // Results saved by the older flow have a different shape; ignore them.
         if (c.computed_results && c.computed_results.sectionTables) {
           setResults(c.computed_results);
@@ -5784,7 +6052,8 @@ export function ScenarioBuilderEditor({ configId, onBack }: { configId: number; 
       opportunity: tableConfig.section_tables?.opportunity ?? [],
       combined: tableConfig.section_tables?.combined ?? [],
     },
-  }), [namedDerived, tableConfig.weights, tableConfig.section_tables, weightedList]);
+    variables_source: variablesSource,
+  }), [namedDerived, tableConfig.weights, tableConfig.section_tables, weightedList, variablesSource]);
 
   // ── Auto-save (every second, only when something changed) ──
 
@@ -5884,11 +6153,47 @@ export function ScenarioBuilderEditor({ configId, onBack }: { configId: number; 
   }, [configId]);
 
   // Variable operations
-  const addGlobalVar = () => setGlobalVars(v => [...v, { name: '', value: 0, description: '' }]);
+  // Any manual change after an Excel upload is flagged so the basis stays honest.
+  const markEditedAfterUpload = () =>
+    setVariablesSource(src => (src && !src.edited_after_upload ? { ...src, edited_after_upload: true } : src));
+  const addGlobalVar = () => {
+    setGlobalVars(v => [...v, { name: '', value: 0, description: '' }]);
+    markEditedAfterUpload();
+  };
   const updateGlobalVar = (idx: number, field: keyof VariableItem, value: string | number) => {
     setGlobalVars(v => v.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+    markEditedAfterUpload();
   };
-  const deleteGlobalVar = (idx: number) => setGlobalVars(v => v.filter((_, i) => i !== idx));
+  const deleteGlobalVar = (idx: number) => {
+    setGlobalVars(v => v.filter((_, i) => i !== idx));
+    markEditedAfterUpload();
+  };
+
+  const importExcelVars = (parsed: ParsedVariablesExcel, mode: 'replace' | 'merge') => {
+    if (mode === 'replace') {
+      setGlobalVars(parsed.variables);
+    } else {
+      setGlobalVars(current => {
+        const out = current.filter(v => v.name.trim() !== '');
+        for (const nv of parsed.variables) {
+          const idx = out.findIndex(v => v.name.trim().toLowerCase() === nv.name.trim().toLowerCase());
+          const match = idx >= 0 ? out[idx] : undefined;
+          if (match) out[idx] = { ...match, value: nv.value, description: nv.description || match.description };
+          else out.push(nv);
+        }
+        return out;
+      });
+    }
+    setVariablesSource({
+      type: 'excel',
+      filename: parsed.filename,
+      uploaded_at: parsed.uploaded_at,
+      row_count: parsed.row_count,
+      mode,
+      edited_after_upload: false,
+    });
+  };
+  const filledVarCount = globalVars.filter(v => v.name.trim() !== '').length;
 
   // Derived operations
   const addDerived = () => setDerivedMetrics(d => [...d, { name: '', formula: '', description: '', scenario_formulas: {} }]);
@@ -6132,6 +6437,12 @@ export function ScenarioBuilderEditor({ configId, onBack }: { configId: number; 
                 </p>
               </div>
             </div>
+
+            <ExcelImportPanel
+              source={variablesSource}
+              existingCount={filledVarCount}
+              onImport={importExcelVars}
+            />
 
             <NameTip className="mb-4" />
 

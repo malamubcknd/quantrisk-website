@@ -115,3 +115,42 @@ export function clearAuthCookies(): void {
   document.cookie = `${TOKEN_COOKIE}=; Path=/; Max-Age=0`;
   document.cookie = `${USER_COOKIE}=; Path=/; Max-Age=0`;
 }
+
+// ── Session expiry helpers ─────────────────────────────────────────────────────
+
+/** Read the `exp` claim (seconds since epoch) from a JWT without verifying it. */
+export function getTokenExpiry(token: string | null | undefined): number | null {
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
+    return typeof json.exp === 'number' ? json.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True if the token is missing, malformed or past its expiry time. */
+export function isTokenExpired(token: string | null | undefined): boolean {
+  const exp = getTokenExpiry(token);
+  return exp === null || Date.now() >= exp * 1000;
+}
+
+let _loggingOut = false;
+
+/** Clear the session everywhere and send the user to the login page. */
+export async function forceLogout(reason: 'expired' | 'signout' = 'expired'): Promise<void> {
+  if (typeof window === 'undefined' || _loggingOut) return;
+  _loggingOut = true;
+  clearAuthCookies();
+  try {
+    // Server route also clears the httpOnly copy of the user cookie
+    await fetch('/auth/logout', { method: 'POST' });
+  } catch {
+    // ignore — cookies were already cleared client-side
+  }
+  window.location.replace(reason === 'expired' ? '/login?error=expired' : '/login');
+}
+

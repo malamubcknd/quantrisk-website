@@ -1,7 +1,7 @@
 
 
 
-// import { getAccessToken } from './auth';
+// import { getAccessToken, forceLogout } from './auth';
 
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://127.0.0.1:8001';
 
@@ -231,7 +231,7 @@
 
 
 
-// import { getAccessToken } from './auth';
+// import { getAccessToken, forceLogout } from './auth';
 
 // const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://127.0.0.1:8001';
 
@@ -474,7 +474,7 @@
 
 
 
-import { getAccessToken } from './auth';
+import { getAccessToken, forceLogout } from './auth';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://127.0.0.1:8001';
 
@@ -539,6 +539,27 @@ export interface TableConfig {
   weights: Record<string, number>;
   weighted_metrics?: WeightedMetric[];
   section_tables?: Partial<Record<SectionKey, SectionMetric[]>>;
+  /** Where the base variables came from. Missing / null = typed in manually. */
+  variables_source?: VariablesSource | null;
+}
+
+export interface VariablesSource {
+  type: 'excel';
+  filename: string;
+  uploaded_at: string;
+  row_count: number;
+  /** replace = Excel rows replaced the list; merge = matched names updated, new ones added */
+  mode?: 'replace' | 'merge';
+  edited_after_upload?: boolean;
+}
+
+export interface ParsedVariablesExcel {
+  filename: string;
+  uploaded_at: string;
+  row_count: number;
+  skipped: number;
+  warnings: string[];
+  variables: VariableItem[];
 }
 
 export interface ConfigSummary {
@@ -715,3 +736,56 @@ export async function validateFormula(
     body: JSON.stringify({ formula, available_variables: availableVariables }),
   });
 }
+
+// ── Excel import for Global & Base Case Variables ─────────────────────────
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === 'string') return data.detail;
+  } catch {
+    // not JSON
+  }
+  return `Request failed (${res.status})`;
+}
+
+/** Upload a workbook and get the variables back (nothing is saved server-side). */
+export async function parseVariablesExcel(file: File): Promise<ParsedVariablesExcel> {
+  const token = getAccessToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/api/scenario-builder/variables/parse-excel`, {
+    method: 'POST',
+    body: form,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401) {
+    void forceLogout('expired');
+    throw new Error('Session expired — please sign in again.');
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/** Download the .xlsx template with the exact column names. */
+export async function downloadVariablesTemplate(): Promise<void> {
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE}/api/scenario-builder/variables/template`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401) {
+    void forceLogout('expired');
+    throw new Error('Session expired — please sign in again.');
+  }
+  if (!res.ok) throw new Error(await readError(res));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'scenario_builder_variables_template.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+

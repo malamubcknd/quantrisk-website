@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { fetchNews, fetchNewsSummary, triggerScrape, NewsArticle, NewsSummary } from '@/lib/api';
+import { fetchNews, fetchNewsSummary, triggerScrape, NewsArticle, NewsSummary, PeriodCount } from '@/lib/api';
 import { SkeletonBlock } from '@/components/ui/SkeletonBlock';
+import { SoWhatPanel } from '@/components/analysis/SoWhatPanel';
 import {
   Newspaper, RefreshCw, AlertTriangle, TrendingUp, Tag,
   ChevronDown, ChevronUp, ExternalLink, Brain, Shield, Wifi,
@@ -135,6 +136,67 @@ function SummaryBar({ summary }: { summary: NewsSummary }) {
   );
 }
 
+// ── Articles published per period (GMT) ──────────────────────────────────────
+
+const PERIODS: { key: string; label: string }[] = [
+  { key: 'today',     label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'thisWeek',  label: 'This Week' },
+  { key: 'lastWeek',  label: 'Last Week' },
+  { key: 'lastMonth', label: 'Last Month' },
+  { key: 'thisMonth', label: 'This Month' },
+];
+
+/** Format a naive-UTC ISO string (as sent by the API) in GMT. */
+function fmtGmt(iso: string, opts: Intl.DateTimeFormatOptions): string {
+  return new Date(`${iso}Z`).toLocaleDateString('en-GB', { ...opts, timeZone: 'UTC' });
+}
+
+function periodSubLabel(key: string, p: PeriodCount): string {
+  if (key === 'today' || key === 'yesterday') {
+    return fmtGmt(p.from, { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+  if (key === 'thisWeek' || key === 'lastWeek') {
+    // `to` is exclusive, so the last day shown is one day earlier
+    const lastDay = new Date(new Date(`${p.to}Z`).getTime() - 86_400_000).toISOString().slice(0, 19);
+    return `${fmtGmt(p.from, { day: '2-digit', month: 'short' })} – ${fmtGmt(lastDay, { day: '2-digit', month: 'short' })}`;
+  }
+  return fmtGmt(p.from, { month: 'long', year: 'numeric' });
+}
+
+function PeriodBoxes({ counts, keyword }: { counts: Record<string, PeriodCount>; keyword: string }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant">
+        Articles published (GMT){keyword ? ` · matching “${keyword}”` : ''}
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {PERIODS.map(({ key, label }) => {
+          const p = counts[key];
+          if (!p) return null;
+          return (
+            <div
+              key={key}
+              className="rounded-xl border p-3 flex flex-col justify-between"
+              style={{ background: 'rgba(255,255,255,0.01)', borderColor: 'rgba(255,255,255,0.06)' }}
+            >
+              <div className="flex items-center gap-1.5 text-on-surface-variant mb-1">
+                <CalendarDays className="w-3.5 h-3.5 text-mtn-yellow" />
+                <span className="text-[10px] font-mono uppercase tracking-wider truncate">{label}</span>
+              </div>
+              <div className="mt-1">
+                <span className="text-2xl font-hero font-bold text-on-surface">{p.count}</span>
+                <span className="text-[10px] text-on-surface-variant ml-1">articles</span>
+              </div>
+              <p className="text-[10px] font-mono text-on-surface-variant/70 mt-1 truncate">{periodSubLabel(key, p)}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Severity bar ──────────────────────────────────────────────────────────────
 
 function SeverityBar({ value }: { value: number }) {
@@ -231,16 +293,19 @@ function ArticleCard({
 
       {isExpanded && (
         <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: 'rgba(255,208,0,0.1)' }}>
-          {/* AI Risk Summary Box */}
+          {/* AI Summary Box */}
           <div className="mt-4 rounded-lg p-3.5 border border-mtn-yellow/25 bg-mtn-yellow/5 space-y-1.5">
             <div className="flex items-center gap-2 text-mtn-yellow text-xs font-mono font-bold uppercase tracking-wider">
               <Brain className="w-4 h-4" />
-              AI Risk Summary & MTN Impact
+              AI Summary
             </div>
             <p className="text-xs font-sans text-on-surface leading-relaxed">
               {displaySummary}
             </p>
           </div>
+
+          {/* So what? analyst view (what / why / good-or-bad / next / action / consequences) */}
+          <SoWhatPanel analysis={article.analysis} defaultOpen />
 
           {/* Risk Scores & Impact */}
           {(article.severity != null || article.mtnRelevance != null || article.impactGhsMid != null) && (
@@ -540,6 +605,9 @@ export default function NewsPage() {
           );
         })}
       </div>
+
+      {/* Articles published per period (GMT) — directly under the category counters */}
+      {summary?.periodCounts && <PeriodBoxes counts={summary.periodCounts} keyword={filters.keyword} />}
 
       {/* Search and publication-date filters */}
       <div className="rounded-xl border border-white/7 bg-white/[0.02] p-4">

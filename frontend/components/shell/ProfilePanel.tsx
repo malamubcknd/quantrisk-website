@@ -1,31 +1,21 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { User, Settings, Shield, HelpCircle, LogOut, X } from 'lucide-react';
-import { getStoredUser, type AuthUser } from '@/lib/auth';
+import { forceLogout, getStoredUser } from '@/lib/auth';
+import { useAppState } from '@/stores/useAppState';
 
 export function ProfilePanel({ onClose }: { onClose: () => void }) {
-  const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const { state } = useAppState();
+  // Verified user from the backend; fall back to the cookie copy while that loads
+  const user = state.currentUser ?? getStoredUser();
+  const isAuthenticated = Boolean(state.currentUser);
 
-  useEffect(() => {
-    setUser(getStoredUser());
-  }, []);
-
-  const handleSignOut = async () => {
-    try {
-      await fetch('/auth/logout', { method: 'POST' });
-    } catch {
-      // Ignore — cookies will be cleared client-side anyway
-    }
+  const handleSignOut = () => {
     onClose();
-    router.replace('/login');
-    router.refresh();
+    void forceLogout('signout');
   };
-
-  const displayName = user?.name ?? user?.email?.split('@')[0] ?? 'Authenticated User';
 
   return (
     <div className="absolute top-12 right-0 w-64 bg-surface border border-outline/20 rounded-lg shadow-2xl overflow-hidden z-50 flex flex-col animate-in fade-in slide-in-from-top-2 duration-200">
@@ -34,10 +24,16 @@ export function ProfilePanel({ onClose }: { onClose: () => void }) {
           <div className="h-10 w-10 rounded-full bg-surface-container-high border border-mtn-yellow flex items-center justify-center shrink-0">
             <User className="w-5 h-5 text-mtn-yellow" />
           </div>
-          <div>
-            <h3 className="font-sans text-sm font-bold text-white leading-tight">{displayName}</h3>
-            <span className="font-mono text-[10px] text-on-surface-variant tracking-widest uppercase block mt-1">
+          <div className="min-w-0">
+            <h3 className="font-sans text-sm font-bold text-white leading-tight break-all">
               {user?.email ?? 'Loading account…'}
+            </h3>
+            <span
+              className={`font-mono text-[10px] tracking-widest uppercase block mt-1 ${
+                isAuthenticated ? 'text-green-400' : 'text-on-surface-variant'
+              }`}
+            >
+              {isAuthenticated ? '(Authenticated)' : '(Verifying…)'}
             </span>
           </div>
         </div>

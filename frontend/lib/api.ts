@@ -5,7 +5,7 @@ import type {
   KpiId, MacroOverlays, ScenarioFormData,
   FeedbackPayload, BaseCaseLogEntry, UploadResult, PdfKpiCandidate,
 } from './types';
-import { User, Role, getAccessToken, getStoredUser } from './auth';
+import { User, Role, getAccessToken, getStoredUser, forceLogout, isTokenExpired } from './auth';
 
 const USE_MOCK_API = false;
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://127.0.0.1:8001';
@@ -20,6 +20,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
   });
+  if (res.status === 401) {
+    void forceLogout('expired');
+    throw new Error('Session expired — please sign in again.');
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${path} → ${res.status}: ${body.slice(0, 200)}`);
@@ -152,6 +156,7 @@ export async function uploadCsv(file: File): Promise<UploadResult> {
     body: form,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+  if (res.status === 401) { void forceLogout('expired'); throw new Error('Session expired — please sign in again.'); }
   if (!res.ok) { const t = await res.text(); throw new Error(`Upload failed: ${t.slice(0, 200)}`); }
   return res.json();
 }
@@ -165,6 +170,7 @@ export async function uploadPdf(file: File): Promise<UploadResult> {
     body: form,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+  if (res.status === 401) { void forceLogout('expired'); throw new Error('Session expired — please sign in again.'); }
   if (!res.ok) { const t = await res.text(); throw new Error(`Upload failed: ${t.slice(0, 200)}`); }
   return res.json();
 }
@@ -212,6 +218,22 @@ export async function fetchBaseCaseLogs(): Promise<BaseCaseLogEntry[]> {
   return apiFetch('/api/logs/base-case');
 }
 
+// ── "So what?" analyst view (generated once per article by the backend) ───────
+
+export interface SoWhatAnalysis {
+  what_happening: string;
+  why_happening: string;
+  why_it_matters_to_mtn: string;
+  impact: 'positive' | 'negative' | 'neutral' | 'mixed';
+  impact_reason: string;
+  outlook: string;
+  recommended_actions: string[];
+  if_we_act: string;
+  if_we_dont: string;
+  confidence?: 'high' | 'medium' | 'low';
+  generated_by?: string;   // "llm:<model>" or "rules"
+}
+
 // ── News Feed ──────────────────────────────────────────────────────────────────
 
 export interface NewsArticle {
@@ -219,6 +241,7 @@ export interface NewsArticle {
   url: string;
   title: string;
   summary?: string | null;  // AI Summary
+  analysis?: SoWhatAnalysis | null;  // "So what?" analyst view (null for older articles)
   body?: string;
   sourceName: string | null;
   publishedAt: string | null;
@@ -237,12 +260,21 @@ export interface NewsArticle {
   keywordHits?: Record<string, number>;
 }
 
+/** Articles PUBLISHED in a GMT period. `from` is inclusive, `to` is exclusive (naive UTC ISO strings). */
+export interface PeriodCount {
+  count: number;
+  from: string;
+  to: string;
+}
+
 export interface NewsSummary {
   articlesToday: number;
   totalArticles: number;
   topRiskCategory: string | null;
   categoryBreakdown: Record<string, number>;
   sourceBreakdown: Record<string, number>;
+  /** today | yesterday | thisWeek | lastWeek | lastMonth | thisMonth */
+  periodCounts?: Record<string, PeriodCount>;
 }
 
 export async function fetchNews(params: {
@@ -293,6 +325,7 @@ export interface NewsAlert {
   articleId: string;
   articleUrl: string | null; 
   summary?: string | null;  // AI Summary
+  analysis?: SoWhatAnalysis | null;  // "So what?" analyst view (null for older articles)
   tier: 'Critical' | 'Warning' | 'Watch';
   category: string;
   subcategory: string | null;
@@ -434,56 +467,51 @@ export async function fetchIntelligenceSummary(): Promise<IntelligenceSummary> {
 // ── Current Logged-In User ─────────────────────────────────────────────────────
 
 export async function fetchCurrentUser(): Promise<User | null> {
-  try {
-    const token = getAccessToken();
-    const stored = getStoredUser();
+  const token = getAccessToken();
+  // No token, or token past its expiry → not authenticated
+  if (!token || isTokenExpired(token)) return null;
 
-    // Call FastAPI backend /api/auth/me with Bearer token
+  const stored = getStoredUser();
+  try {
     const res = await fetch(`${API_BASE}/api/auth/me`, {
       method: 'GET',
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+        Authorization: `Bearer ${token}`,
       },
+      cache: 'no-store',
     });
+
+    // Backend rejected the token (expired / invalid / unknown user) → not authenticated
+    if (res.status === 401 || res.status === 403 || res.status === 404) return null;
 
     if (res.ok) {
       const data = (await res.json()) as { email?: string; name?: string; role?: string };
-      const email = data.email || stored?.email || '';
-      if (email) {
+      if (data.email) {
         return {
-          id: email,
-          email,
-          name: data.name || stored?.name || email.split('@')[0] || 'User',
-          role: (data.role as Role) || (stored?.role as Role) || 'risk',
+          id: data.email,
+          email: data.email,
+          name: data.name || data.email.split('@')[0] || 'User',
+          role: (data.role as Role) || 'risk',
         };
       }
+      return null;
     }
-
-    // Fallback to client-side auth cookie if API call fails
-    if (stored?.email) {
-      return {
-        id: stored.email,
-        email: stored.email,
-        name: stored.name || stored.email.split('@')[0] || 'User',
-        role: (stored.role as Role) || 'risk',
-      };
-    }
-
-    return null;
   } catch (error) {
-    console.error("Failed to fetch current user:", error);
-    const stored = getStoredUser();
-    if (stored?.email) {
-      return {
-        id: stored.email,
-        email: stored.email,
-        name: stored.name || stored.email.split('@')[0] || 'User',
-        role: (stored.role as Role) || 'risk',
-      };
-    }
-    return null;
+    // Network error: backend unreachable. The token itself is still valid (checked above),
+    // so keep the session alive using the cookie copy rather than logging the user out.
+    console.error('Failed to fetch current user:', error);
   }
+
+  if (stored?.email) {
+    return {
+      id: stored.email,
+      email: stored.email,
+      name: stored.name || stored.email.split('@')[0] || 'User',
+      role: (stored.role as Role) || 'risk',
+    };
+  }
+  return null;
 }
 
 

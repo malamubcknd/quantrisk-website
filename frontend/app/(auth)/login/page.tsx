@@ -14,6 +14,7 @@ export default function LoginPage() {
       missing: 'Enter your email and password.',
       domain: 'This email domain is not authorised.',
       credentials: 'The email or password is incorrect.',
+      expired: 'Your session has expired. Please sign in again.',
     };
     setError(code ? messages[code] ?? 'Unable to sign in. Please try again.' : null);
   }, []);

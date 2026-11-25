@@ -1,5 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { TOKEN_COOKIE, USER_COOKIE } from '@/lib/auth';
+import { TOKEN_COOKIE, USER_COOKIE, getTokenExpiry, isTokenExpired } from '@/lib/auth';
+
+function redirectToLogin(request: NextRequest, error?: string) {
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = '/login';
+  loginUrl.search = '';
+  if (error) loginUrl.searchParams.set('error', error);
+  const response = NextResponse.redirect(loginUrl);
+  response.cookies.delete(TOKEN_COOKIE);
+  response.cookies.delete(USER_COOKIE);
+  return response;
+}
 
 export async function updateSession(request: NextRequest) {
   const token = request.cookies.get(TOKEN_COOKIE)?.value;
@@ -11,6 +22,17 @@ export async function updateSession(request: NextRequest) {
   // Allow auth routes (login POST, logout) through
   if (isAuthRoute) {
     return NextResponse.next({ request });
+  }
+
+  // Expired / malformed token → clear the session and send the user to login
+  if (token && isTokenExpired(token)) {
+    if (isLoginPage) {
+      const response = NextResponse.next({ request });
+      response.cookies.delete(TOKEN_COOKIE);
+      response.cookies.delete(USER_COOKIE);
+      return response;
+    }
+    return redirectToLogin(request, 'expired');
   }
 
   // No token → redirect to login (unless already on login page)
@@ -46,17 +68,18 @@ export async function updateSession(request: NextRequest) {
         response.cookies.set(
           USER_COOKIE,
           encodeURIComponent(JSON.stringify(user)),
-          { httpOnly: true, sameSite: 'lax', path: '/' }
+          {
+            // Readable by the client (profile panel), and expires with the token
+            httpOnly: false,
+            sameSite: 'lax',
+            path: '/',
+            maxAge: Math.max(0, (getTokenExpiry(token) ?? 0) - Math.floor(Date.now() / 1000)),
+          }
         );
         return response;
       }
       // Token invalid → clear and redirect to login
-      const loginUrl = request.nextUrl.clone();
-      loginUrl.pathname = '/login';
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete(TOKEN_COOKIE);
-      response.cookies.delete(USER_COOKIE);
-      return response;
+      return redirectToLogin(request, 'expired');
     } catch {
       // Backend unreachable — allow through; API calls will surface errors
       return NextResponse.next({ request });
