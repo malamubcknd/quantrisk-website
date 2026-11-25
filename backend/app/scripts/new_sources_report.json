@@ -1,0 +1,164 @@
+[
+  {
+    "name": "Data Protection Commission",
+    "home": "https://dpc.gov.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://dpc.gov.gh/feed/",
+      "ok": true,
+      "entries": 9,
+      "latest": "DATA PROTECTION COMMISSION ACQUIRES NEW VEHICLES TO EXPAND REGIONAL AND ENFORCEMENT OPERAT",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "National Insurance Commission",
+    "home": "https://nic.gov.gh/",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 12
+  },
+  {
+    "name": "National Communications Authority",
+    "home": "https://nca.org.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://nca.org.gh/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "Ghana Seeks Re-Election to ITU Council, Presents Edmund Fianko for Radio Regulations Board",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "National Identification Authority",
+    "home": "https://nia.gov.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://nia.gov.gh/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "NIA Temporarily Suspends Date of Birth Updates",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "Ghana Investment Promotion Centre",
+    "home": "https://www.ghana.gov.gh/mdas/ad4daaa174/",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 24
+  },
+  {
+    "name": "Ministry of Communications, Digital Technology & Innovations",
+    "home": "https://moc.gov.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://moc.gov.gh/feed",
+      "ok": true,
+      "entries": 10,
+      "latest": "GHANA CALLS FOR INCLUSIVE EMERGING TECHNOLOGIES THAT IMPROVE LIVES",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 2
+  },
+  {
+    "name": "Ghana Telecom Chamber",
+    "home": "https://www.telecomschamber.org/",
+    "hint": "tech_telecom",
+    "feed": {
+      "url": "https://www.telecomschamber.org/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "MTN Ghana graduates 88 entrepreneurs from Mini MBA programme",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "Securities and Exchange Commission",
+    "home": "https://sec.gov.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://sec.gov.gh/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "CALL FOR FEEDBACK ON THE DRAFT DATA REPORTING SERVICE PROVIDERS GUIDELINES 2026",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "National Information Technology Agency",
+    "home": "https://nita.gov.gh/",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 12
+  },
+  {
+    "name": "Cyber Security Authority",
+    "home": "https://csa.gov.gh/",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 12
+  },
+  {
+    "name": "Ghana Revenue Authority",
+    "home": "https://gra.gov.gh/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://gra.gov.gh/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "IMPLEMENTATION OF ELECTRONIC INVOICING OF VALUE ADDED TAX-PHASE TWO",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  },
+  {
+    "name": "Office of the Registrar of Companies",
+    "home": "https://orc.gov.gh/index.php",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 23
+  },
+  {
+    "name": "Ghana Investment Fund for Electronic Communications",
+    "home": "https://gifec.gov.gh/",
+    "hint": "regulatory",
+    "feed": null,
+    "attempts": 12
+  },
+  {
+    "name": "Environmental Protection Authority",
+    "home": "https://www.epa.gov.gh/new/",
+    "hint": "regulatory",
+    "feed": {
+      "url": "https://www.epa.gov.gh/new/feed/",
+      "ok": true,
+      "entries": 10,
+      "latest": "Retired EPA staff launch Association to empower members, champion environmental protection",
+      "ssl_problem": false,
+      "note": null,
+      "status": 200
+    },
+    "attempts": 1
+  }
+]

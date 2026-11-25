@@ -1,6 +1,7 @@
 # from __future__ import annotations
 # """
 # Alert CRUD — list, acknowledge, and summary helpers.
+# Includes articleUrl so the frontend can deep-link to the source article.
 # """
 
 # from datetime import datetime, timezone
@@ -17,15 +18,24 @@
 #     limit: int = 50,
 #     offset: int = 0,
 # ) -> list[dict]:
-#     query = db.query(Alert).join(Article, Alert.article_id == Article.id)
+#     query = (
+#         db.query(Alert, Article)
+#         .join(Article, Alert.article_id == Article.id)
+#     )
 
 #     if tier:
 #         query = query.filter(Alert.tier == tier)
 #     if acknowledged is not None:
 #         query = query.filter(Alert.acknowledged == acknowledged)
 
-#     alerts = query.order_by(Alert.created_at.desc()).offset(offset).limit(limit).all()
-#     return [_alert_to_dict(a) for a in alerts]
+#     rows = (
+#         query
+#         .order_by(Alert.created_at.desc())
+#         .offset(offset)
+#         .limit(limit)
+#         .all()
+#     )
+#     return [_alert_to_dict(alert, article) for alert, article in rows]
 
 
 # def acknowledge_alert(db: Session, alert_id: str) -> dict | None:
@@ -36,7 +46,10 @@
 #     alert.acknowledged_at = datetime.now(timezone.utc)
 #     db.commit()
 #     db.refresh(alert)
-#     return _alert_to_dict(alert)
+
+#     # Fetch linked article for URL in response
+#     article = db.get(Article, alert.article_id)
+#     return _alert_to_dict(alert, article)
 
 
 # def get_alert_summary(db: Session) -> dict:
@@ -50,10 +63,11 @@
 #     }
 
 
-# def _alert_to_dict(alert: Alert) -> dict:
+# def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
 #     return {
 #         "id":             alert.id,
 #         "articleId":      alert.article_id,
+#         "articleUrl":     article.url if article else None,   # ← NEW: source article link
 #         "tier":           alert.tier,
 #         "category":       alert.category,
 #         "subcategory":    alert.subcategory,
@@ -70,10 +84,42 @@
 
 
 
+# from .aisummarizer_service import generate_ai_summary
+
+# def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
+#     body = article.body if article else ""
+#     summary = generate_ai_summary(
+#         title=alert.headline, 
+#         body=body, 
+#         category=alert.category, 
+#         mtn_relevance=alert.mtn_relevance
+#     )
+
+#     return {
+#         "id":             alert.id,
+#         "articleId":      alert.article_id,
+#         "articleUrl":     article.url if article else None,
+#         "summary":        summary,  # ← NEW: AI Summary attached
+#         "tier":           alert.tier,
+#         "category":       alert.category,
+#         "subcategory":    alert.subcategory,
+#         "headline":       alert.headline,
+#         "sourceName":     alert.source_name,
+#         "severity":       alert.severity,
+#         "impactGhsMid":   alert.impact_ghs_mid,
+#         "mtnRelevance":   alert.mtn_relevance,
+#         "acknowledged":   alert.acknowledged,
+#         "acknowledgedAt": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+#         "createdAt":      alert.created_at.isoformat() if alert.created_at else None,
+#     }
+
+
+
 from __future__ import annotations
 """
 Alert CRUD — list, acknowledge, and summary helpers.
-Includes articleUrl so the frontend can deep-link to the source article.
+Includes articleUrl so the frontend can deep-link to the source article, plus the stored
+AI summary and the "so what?" analysis (both generated once, at processing time).
 """
 
 from datetime import datetime, timezone
@@ -81,6 +127,7 @@ from sqlalchemy.orm import Session
 
 from ..models.alert import Alert
 from ..models.article import Article
+from .so_what_service import parse_analysis
 
 
 def list_alerts(
@@ -119,7 +166,7 @@ def acknowledge_alert(db: Session, alert_id: str) -> dict | None:
     db.commit()
     db.refresh(alert)
 
-    # Fetch linked article for URL in response
+    # Fetch linked article for URL, summary and analysis in the response
     article = db.get(Article, alert.article_id)
     return _alert_to_dict(alert, article)
 
@@ -136,42 +183,18 @@ def get_alert_summary(db: Session) -> dict:
 
 
 def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
-    return {
-        "id":             alert.id,
-        "articleId":      alert.article_id,
-        "articleUrl":     article.url if article else None,   # ← NEW: source article link
-        "tier":           alert.tier,
-        "category":       alert.category,
-        "subcategory":    alert.subcategory,
-        "headline":       alert.headline,
-        "sourceName":     alert.source_name,
-        "severity":       alert.severity,
-        "impactGhsMid":   alert.impact_ghs_mid,
-        "mtnRelevance":   alert.mtn_relevance,
-        "acknowledged":   alert.acknowledged,
-        "acknowledgedAt": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
-        "createdAt":      alert.created_at.isoformat() if alert.created_at else None,
-    }
-
-
-
-
-from .aisummarizer_service import generate_ai_summary
-
-def _alert_to_dict(alert: Alert, article: Article | None = None) -> dict:
-    body = article.body if article else ""
-    summary = generate_ai_summary(
-        title=alert.headline, 
-        body=body, 
-        category=alert.category, 
-        mtn_relevance=alert.mtn_relevance
-    )
+    # NOTE: the summary is read from the database (generated once when the article was
+    # processed). It is NOT regenerated per request, which used to trigger an AI call
+    # for every alert on every list request.
+    summary = (article.summary if article else None) or "Summary not available"
+    analysis = parse_analysis(article.analysis) if article is not None else None
 
     return {
         "id":             alert.id,
         "articleId":      alert.article_id,
         "articleUrl":     article.url if article else None,
-        "summary":        summary,  # ← NEW: AI Summary attached
+        "summary":        summary,
+        "analysis":       analysis,   # "So what?" analyst view (dict or None)
         "tier":           alert.tier,
         "category":       alert.category,
         "subcategory":    alert.subcategory,

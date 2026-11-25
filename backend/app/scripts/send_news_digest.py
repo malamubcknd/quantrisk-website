@@ -2,8 +2,12 @@
 ================================================================================
 MTN QuantRisk - NEWS DIGEST SENDER
 ================================================================================
-Sends top 3 articles per risk category to the configured recipients.
+Sends top articles per risk category to the configured recipients.
 Skips any articles published or scraped more than MAX_AGE_DAYS ago.
+
+Only articles that already have a completed AI summary AND implications analysis are
+emailed. Articles still waiting for the AI are NOT marked as sent, so they go out on a
+later run once the analysis exists. Nothing generic is ever sent.
 ================================================================================
 """
 from __future__ import annotations
@@ -21,6 +25,7 @@ from app.models.risk_score import RiskScore
 from app.services.email_service import (
     load_sent_ids, mark_sent, render_news_digest_html, render_consolidated_news_digest_html, send_email
 )
+from app.services.so_what_service import parse_analysis, is_usable_summary
 from app.config.email_config import (
     NEWS_RECIPIENTS, NEWS_MIN_MTN_RELEVANCE, NEWS_TOP_N, HEAD_OF_RISKS_RECIPIENTS,
     EMAIL_SUBJECT_NEWS, EMAIL_SUBJECT_CONSOLIDATED_NEWS, SENT_NEWS_LOG, VERBOSE, MAX_AGE_DAYS
@@ -45,8 +50,11 @@ def _composite_score(article: Article, risk: RiskScore, now: datetime) -> float:
     return (recency * 0.30) + (relevance * 0.40) + (severity * 0.30)
 
 
-def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: datetime) -> list[dict]:
-    """Fetch top N unsent articles for a given risk category (limited by MAX_AGE_DAYS)."""
+def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: datetime) -> tuple[list[dict], int]:
+    """
+    Fetch top N unsent articles for a category (limited by MAX_AGE_DAYS) that have a completed
+    AI analysis. Returns (articles, number_skipped_waiting_for_ai).
+    """
     age_cutoff = now - timedelta(days=MAX_AGE_DAYS)
 
     rows = (
@@ -58,10 +66,12 @@ def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: 
     )
 
     scored = []
+    waiting_for_ai = 0
+    seen_ids: set[str] = set()
     for article, risk in rows:
-        if article.id in sent_ids:
+        if article.id in sent_ids or article.id in seen_ids:
             continue
-        
+
         pub_time = article.published_at or article.scraped_at or now
         if pub_time.tzinfo is None:
             pub_time = pub_time.replace(tzinfo=timezone.utc)
@@ -69,6 +79,12 @@ def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: 
         if pub_time < age_cutoff:
             continue
 
+        # Claude summary + analysis must both exist
+        if not is_usable_summary(article.summary) or not parse_analysis(article.analysis):
+            waiting_for_ai += 1
+            continue
+
+        seen_ids.add(article.id)
         score = _composite_score(article, risk, now)
         scored.append((score, article, risk))
 
@@ -81,7 +97,8 @@ def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: 
             "id": article.id,
             "title": article.title,
             "url": article.url,
-            "summary": article.summary or "Summary not available",
+            "summary": article.summary,
+            "analysis": parse_analysis(article.analysis),   # AI implications analysis
             "source_name": article.source_name,
             "published_at": article.published_at.isoformat() if article.published_at else None,
             "alert_tier": risk.alert_tier,
@@ -91,7 +108,7 @@ def fetch_top_articles_for_category(db, category: str, sent_ids: set[str], now: 
             "subcategory": risk.subcategory,
             "sentiment": risk.sentiment,
         })
-    return result
+    return result, waiting_for_ai
 
 
 def main():
@@ -107,7 +124,7 @@ def main():
 
     now = datetime.now(timezone.utc)
     categories = list(NEWS_RECIPIENTS.keys())
-    
+
     all_processed_articles = []
     total_sent = 0
 
@@ -119,9 +136,11 @@ def main():
             if not to:
                 continue
 
-            articles = fetch_top_articles_for_category(db, cat, sent_ids, now)
+            articles, waiting = fetch_top_articles_for_category(db, cat, sent_ids, now)
+            if waiting:
+                logger.info(f"[{cat.upper()}] {waiting} article(s) still waiting for the AI — they will be sent on a later run.")
             if not articles:
-                logger.info(f"[{cat.upper()}] No new articles within {MAX_AGE_DAYS} days.")
+                logger.info(f"[{cat.upper()}] No new analysed articles within {MAX_AGE_DAYS} days.")
                 continue
 
             cat_label = cat.capitalize()

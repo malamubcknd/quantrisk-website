@@ -3,6 +3,10 @@
 MTN QuantRisk - RISK ALERT NOTIFICATION SENDER
 ================================================================================
 Sends all new Warning + Critical alerts within the MAX_AGE_DAYS timeframe.
+
+Only alerts whose article already has a completed AI summary AND implications analysis
+are emailed. Alerts still waiting for the AI are NOT marked as sent, so they go out on a
+later run once the analysis exists. Nothing generic is ever sent.
 ================================================================================
 """
 from __future__ import annotations
@@ -21,6 +25,7 @@ from app.models.risk_score import RiskScore
 from app.services.email_service import (
     load_sent_ids, mark_sent, render_alert_html, render_consolidated_alert_html, send_email
 )
+from app.services.so_what_service import parse_analysis, is_usable_summary
 from app.config.email_config import (
     ALERT_RECIPIENTS, ALERT_TIERS_TO_SEND, HEAD_OF_RISKS_RECIPIENTS,
     EMAIL_SUBJECT_ALERT, EMAIL_SUBJECT_CONSOLIDATED_ALERT, SENT_ALERTS_LOG, VERBOSE, MAX_AGE_DAYS
@@ -31,7 +36,8 @@ logging.basicConfig(level=logging.INFO if VERBOSE else logging.WARNING,
 logger = logging.getLogger(__name__)
 
 
-def fetch_unsent_alerts(db, sent_ids: set[str]) -> list[dict]:
+def fetch_unsent_alerts(db, sent_ids: set[str]) -> tuple[list[dict], int]:
+    """Returns (alerts ready to send, number skipped because Claude has not finished them)."""
     now = datetime.now(timezone.utc)
     age_cutoff = now - timedelta(days=MAX_AGE_DAYS)
 
@@ -45,15 +51,24 @@ def fetch_unsent_alerts(db, sent_ids: set[str]) -> list[dict]:
     )
 
     result = []
+    waiting_for_ai = 0
+    seen_alert_ids: set[str] = set()
     for alert, article, risk in alerts:
-        if alert.id in sent_ids:
+        if alert.id in sent_ids or alert.id in seen_alert_ids:
             continue
+        seen_alert_ids.add(alert.id)
 
         alert_time = alert.created_at or now
         if alert_time.tzinfo is None:
             alert_time = alert_time.replace(tzinfo=timezone.utc)
 
         if alert_time < age_cutoff:
+            continue
+
+        # Claude summary + analysis must both exist
+        analysis = parse_analysis(article.analysis)
+        if not is_usable_summary(article.summary) or not analysis:
+            waiting_for_ai += 1
             continue
 
         result.append({
@@ -68,10 +83,11 @@ def fetch_unsent_alerts(db, sent_ids: set[str]) -> list[dict]:
             "impact_ghs_mid": alert.impact_ghs_mid,
             "mtn_relevance": alert.mtn_relevance,
             "created_at": alert.created_at.isoformat() if alert.created_at else None,
-            "summary": article.summary or "Summary not available",
+            "summary": article.summary,
+            "analysis": analysis,   # AI implications analysis
             "article_url": article.url,
         })
-    return result
+    return result, waiting_for_ai
 
 
 def main():
@@ -86,9 +102,11 @@ def main():
     logger.info(f"Loaded {len(sent_ids)} previously sent alert IDs")
 
     with SessionLocal() as db:
-        alerts = fetch_unsent_alerts(db, sent_ids)
+        alerts, waiting = fetch_unsent_alerts(db, sent_ids)
+        if waiting:
+            logger.info(f"{waiting} alert(s) still waiting for the AI — they will be sent on a later run.")
         if not alerts:
-            logger.info(f"No new alerts raised within {MAX_AGE_DAYS} days.")
+            logger.info(f"No new analysed alerts within {MAX_AGE_DAYS} days.")
             return
 
         to = ALERT_RECIPIENTS.get("to", [])
@@ -99,12 +117,12 @@ def main():
 
         critical = sum(1 for a in alerts if a["tier"] == "Critical")
         warning  = sum(1 for a in alerts if a["tier"] == "Warning")
-        
+
         # Pull category for first alert as context
         primary_cat = alerts[0]["category"].capitalize() if alerts else "Risk"
         subject = EMAIL_SUBJECT_ALERT.format(
-            category=primary_cat, 
-            critical=critical, 
+            category=primary_cat,
+            critical=critical,
             warning=warning
         )
 

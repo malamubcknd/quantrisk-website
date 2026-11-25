@@ -3,6 +3,7 @@ uvicorn[standard]
 pydantic
 python-multipart
 pandas
+openpyxl
 numpy
 scikit-learn
 xgboost

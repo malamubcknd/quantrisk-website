@@ -679,7 +679,8 @@
 
 # backend/app/api/scenario_builder_routes.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -690,6 +691,11 @@ from app.services.formula_engine import (
     validate_formula,
     compute_scenario_tables,
     FormulaEngine,
+)
+from app.services.variables_excel import (
+    ExcelImportError,
+    build_template,
+    parse_variables_file,
 )
 
 router = APIRouter(prefix="/api/scenario-builder", tags=["scenario-builder"])
@@ -752,6 +758,10 @@ class TableConfigSchema(BaseModel):
     weighted_metrics: List[WeightedMetricItem] = []
     # keys: stress | shock | opportunity | combined
     section_tables: Dict[str, List[SectionMetricItem]] = {}
+    # Where the Global & Base Case Variables came from, e.g.
+    # {"type": "excel", "filename": "...", "uploaded_at": "...", "row_count": 12, "edited_after_upload": false}
+    # None / missing = typed in manually.
+    variables_source: Optional[Dict[str, Any]] = None
 
 class CreateConfigRequest(BaseModel):
     name: str
@@ -1045,3 +1055,40 @@ def duplicate_config(config_id: int, new_name: str = "", new_year: Optional[int]
         db.commit()
         db.refresh(dup)
         return {"id": dup.id, "message": f"Duplicated as '{dup.name}' for year {dup.year}"}
+
+
+# ── Excel import for Global & Base Case Variables ─────────────────────────
+
+TEMPLATE_FILENAME = "scenario_builder_variables_template.xlsx"
+
+
+@router.get("/variables/template")
+def download_variables_template():
+    """Download the .xlsx template with the variable_name / value / description columns."""
+    return Response(
+        content=build_template(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{TEMPLATE_FILENAME}"'},
+    )
+
+
+@router.post("/variables/parse-excel")
+async def parse_variables_excel(file: UploadFile = File(...)):
+    """
+    Read variables from an uploaded workbook. Nothing is saved here — the editor
+    shows the rows and saves them with the rest of the configuration.
+    """
+    filename = file.filename or "upload.xlsx"
+    content = await file.read()
+    try:
+        parsed = parse_variables_file(filename, content)
+    except ExcelImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "filename": filename,
+        "uploaded_at": datetime.utcnow().isoformat() + "Z",
+        "row_count": len(parsed["variables"]),
+        "skipped": parsed["skipped"],
+        "warnings": parsed["warnings"],
+        "variables": parsed["variables"],
+    }

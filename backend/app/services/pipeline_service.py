@@ -1,8 +1,6 @@
-
-
 # from __future__ import annotations
 # """
-# process_article — chains NLP → sentiment → impact → alert creation.
+# process_article — chains NLP → sentiment → impact → AI summarization → alert creation.
 # Called immediately after a new article is stored by the scraper.
 # """
 
@@ -13,19 +11,6 @@
 
 
 # def process_article(article_id: str) -> dict | None:
-#     """
-#     Full NLP pipeline for one article:
-#       1. Load article from DB
-#       2. Run NER + keyword classifier  →  mtn_relevance, category, subcategory, severity
-#       3. Skip if mtn_relevance < 0.5 (not highly relevant to MTN Ghana)
-#       4. Run sentiment analysis
-#       5. Compute financial impact (ignores positive sentiment)
-#       6. Determine alert tier (ignores positive sentiment)
-#       7. Save RiskScore
-#       8. If tier in (Watch, Warning, Critical) → create Alert
-
-#     Returns the saved RiskScore dict or None if skipped.
-#     """
 #     from ..models.database import SessionLocal
 #     from ..models.article import Article
 #     from ..models.risk_score import RiskScore
@@ -33,6 +18,7 @@
 #     from .nlp_service import compute_mtn_relevance, run_nlp
 #     from .sentiment_service import run_sentiment
 #     from .impact_service import estimate_impact, compute_alert_tier
+#     from .aisummarizer_service import generate_ai_summary
 
 #     with SessionLocal() as db:
 #         article = db.get(Article, article_id)
@@ -40,94 +26,121 @@
 #             logger.warning("process_article: article %s not found", article_id)
 #             return None
 
+#         title_str = str(article.title or "").strip()
+#         body_str = str(article.body or "").strip()
+
 #         # ── Step 2 — Check Base Relevance
-#         article_text = f"{article.title or ''} {article.body or ''}"
+#         article_text = f"{title_str} {body_str}"
 #         mtn_relevance = compute_mtn_relevance(article_text)
 #         if mtn_relevance < 0.5:
 #             logger.debug("Skipping %s before remote NLP — mtn_relevance=%.2f", article_id[:8], mtn_relevance)
 #             return None
 
 #         # ── Step 3 — Full NLP Extraction
-#         nlp_result = run_nlp(article.title or "", article.body or "")
-#         mtn_relevance = nlp_result["mtn_relevance"]
+#         nlp_result = run_nlp(title_str, body_str)
+#         mtn_relevance = nlp_result.get("mtn_relevance", mtn_relevance)
 
 #         if mtn_relevance < 0.5:
 #             logger.debug("Skipping %s — mtn_relevance=%.2f", article_id[:8], mtn_relevance)
 #             return None
 
 #         # ── Step 4 — Sentiment
-#         sentiment_result = run_sentiment(f"{article.title} {article.body or ''}")
+#         sentiment_result = run_sentiment(f"{title_str} {body_str}")
+#         sentiment = sentiment_result.get("sentiment", "neutral")
+#         sentiment_conf = sentiment_result.get("sentiment_confidence", 0.5)
 
-#         # ── Step 5 — Impact (Now aware of Sentiment!)
+#         category = nlp_result.get("category") or "other"
+#         subcategory = nlp_result.get("subcategory")
+#         severity = nlp_result.get("severity", 5.0)
+#         confidence = nlp_result.get("confidence", 0.7)
+
+#         # ── Step 5 — Financial Impact
 #         impact = estimate_impact(
-#             category=nlp_result["category"],
-#             severity=nlp_result["severity"],
+#             category=category,
+#             severity=severity,
 #             mtn_relevance=mtn_relevance,
-#             confidence=nlp_result["confidence"],
-#             sentiment=sentiment_result["sentiment"]  # <--- Added to prevent positive news from showing financial loss
+#             confidence=confidence,
+#             sentiment=sentiment
 #         )
 
-#         # ── Step 6 — Alert tier (Now aware of Sentiment!)
+#         # ── Step 6 — Alert tier
 #         alert_tier = compute_alert_tier(
-#             severity=nlp_result["severity"],
+#             severity=severity,
 #             mtn_relevance=mtn_relevance,
-#             sentiment=sentiment_result["sentiment"]  # <--- Added to prevent false alarms on good news
+#             sentiment=sentiment
 #         )
 
-#         # ── Step 7 — Save RiskScore
+#         # ── Step 7 — AI Summary generation & storage
+#         try:
+#             article.summary = generate_ai_summary(
+#                 title=title_str,
+#                 body=body_str,
+#                 category=category,
+#                 mtn_relevance=mtn_relevance,
+#                 sentiment=sentiment
+#             )
+#         except Exception as sum_exc:
+#             logger.warning("AI Summarization failed for %s: %s", article_id, sum_exc)
+#             article.summary = "Summary not available"
+
+#         # ── Step 8 — Save RiskScore
 #         risk_score = RiskScore(
 #             article_id=article_id,
-#             category=nlp_result["category"],
-#             subcategory=nlp_result["subcategory"],
-#             severity=nlp_result["severity"],
-#             confidence=nlp_result["confidence"],
+#             category=category,
+#             subcategory=subcategory,
+#             severity=severity,
+#             confidence=confidence,
 #             mtn_relevance=mtn_relevance,
 #             alert_tier=alert_tier,
-#             sentiment=sentiment_result["sentiment"],
-#             sentiment_confidence=sentiment_result["sentiment_confidence"],
-#             impact_ghs_min=impact["impact_ghs_min"],
-#             impact_ghs_mid=impact["impact_ghs_mid"],
-#             impact_ghs_max=impact["impact_ghs_max"],
-#             entities=nlp_result["entities"],
-#             keyword_hits=nlp_result["keyword_hits"],
+#             sentiment=sentiment,
+#             sentiment_confidence=sentiment_conf,
+#             impact_ghs_min=impact.get("impact_ghs_min"),
+#             impact_ghs_mid=impact.get("impact_ghs_mid"),
+#             impact_ghs_max=impact.get("impact_ghs_max"),
+#             entities=nlp_result.get("entities"),
+#             keyword_hits=nlp_result.get("keyword_hits"),
 #         )
 #         db.add(risk_score)
 
-#         # ── Step 8 — Create Alert if threshold met
+#         # ── Step 9 — Create Alert if threshold met
 #         if alert_tier:
 #             alert = Alert(
 #                 article_id=article_id,
 #                 tier=alert_tier,
-#                 category=nlp_result["category"],
-#                 subcategory=nlp_result["subcategory"],
-#                 headline=article.title or "",
+#                 category=category,
+#                 subcategory=subcategory,
+#                 headline=title_str,
 #                 source_name=article.source_name or "",
-#                 severity=nlp_result["severity"],
-#                 impact_ghs_mid=impact["impact_ghs_mid"],
+#                 severity=severity,
+#                 impact_ghs_mid=impact.get("impact_ghs_mid"),
 #                 mtn_relevance=mtn_relevance,
 #             )
 #             db.add(alert)
 #             logger.info(
 #                 "[%s] %s — %s severity=%.1f relevance=%.2f",
-#                 alert_tier.upper(), article.source_name, article.title[:60],
-#                 nlp_result["severity"], mtn_relevance,
+#                 alert_tier.upper(), article.source_name, title_str[:60],
+#                 severity, mtn_relevance,
 #             )
 
 #         db.commit()
 
 #         return {
 #             "article_id": article_id,
-#             "category": nlp_result["category"],
-#             "subcategory": nlp_result["subcategory"],
-#             "severity": nlp_result["severity"],
+#             "category": category,
+#             "subcategory": subcategory,
+#             "severity": severity,
 #             "mtn_relevance": mtn_relevance,
 #             "alert_tier": alert_tier,
-#             "sentiment": sentiment_result["sentiment"],
+#             "sentiment": sentiment,
 #         }
+
+
+
+
 
 from __future__ import annotations
 """
-process_article — chains NLP → sentiment → impact → AI summarization → alert creation.
+process_article — chains NLP → sentiment → impact → AI summarization → "so what" analysis → alert creation.
 Called immediately after a new article is stored by the scraper.
 """
 
@@ -146,6 +159,7 @@ def process_article(article_id: str) -> dict | None:
     from .sentiment_service import run_sentiment
     from .impact_service import estimate_impact, compute_alert_tier
     from .aisummarizer_service import generate_ai_summary
+    from .so_what_service import generate_so_what, analysis_to_json
 
     with SessionLocal() as db:
         article = db.get(Article, article_id)
@@ -155,16 +169,17 @@ def process_article(article_id: str) -> dict | None:
 
         title_str = str(article.title or "").strip()
         body_str = str(article.body or "").strip()
+        source_name = str(article.source_name or "").strip()
 
-        # ── Step 2 — Check Base Relevance
+        # ── Step 2 — Check Base Relevance (Ghana focus is mandatory; trusted regulators are Ghana-focused)
         article_text = f"{title_str} {body_str}"
-        mtn_relevance = compute_mtn_relevance(article_text)
+        mtn_relevance = compute_mtn_relevance(article_text, source_name)
         if mtn_relevance < 0.5:
             logger.debug("Skipping %s before remote NLP — mtn_relevance=%.2f", article_id[:8], mtn_relevance)
             return None
 
         # ── Step 3 — Full NLP Extraction
-        nlp_result = run_nlp(title_str, body_str)
+        nlp_result = run_nlp(title_str, body_str, source_name)
         mtn_relevance = nlp_result.get("mtn_relevance", mtn_relevance)
 
         if mtn_relevance < 0.5:
@@ -209,6 +224,25 @@ def process_article(article_id: str) -> dict | None:
         except Exception as sum_exc:
             logger.warning("AI Summarization failed for %s: %s", article_id, sum_exc)
             article.summary = "Summary not available"
+
+        # ── Step 7b — "So what?" analyst view (what / why / good-or-bad / next / action / consequences)
+        try:
+            analysis = generate_so_what(
+                title=title_str,
+                body=body_str,
+                source_name=source_name,
+                category=category,
+                subcategory=subcategory,
+                sentiment=sentiment,
+                severity=severity,
+                alert_tier=alert_tier,
+                mtn_relevance=mtn_relevance,
+                published_at=article.published_at,
+            )
+            article.analysis = analysis_to_json(analysis)
+        except Exception as so_exc:
+            logger.warning("So-what analysis failed for %s: %s", article_id, so_exc)
+            article.analysis = None
 
         # ── Step 8 — Save RiskScore
         risk_score = RiskScore(
