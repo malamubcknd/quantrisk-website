@@ -210,7 +210,12 @@ _IMPACT_STYLE = {
 
 
 def _so_what_row(label: str, body_html: str, accent: str) -> str:
-    """One labelled line inside the So-What box (accent bar + label + text)."""
+    """One line inside the So-What box (accent bar + optional label + text)."""
+    label_html = (
+        f'<div style="font-family:\'Courier New\', monospace; font-size:10px; font-weight:bold; '
+        f'color:{accent}; text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">{label}</div>'
+        if label else ""
+    )
     return (
         '<tr><td style="padding:0 0 10px 0;">'
           '<table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">'
@@ -218,8 +223,7 @@ def _so_what_row(label: str, body_html: str, accent: str) -> str:
               f'<td width="3" bgcolor="{accent}" style="background-color:{accent}; width:3px; '
               'font-size:1px; line-height:1px;">&nbsp;</td>'
               '<td style="padding:1px 0 1px 10px;">'
-                f'<div style="font-family:\'Courier New\', monospace; font-size:10px; font-weight:bold; '
-                f'color:{accent}; text-transform:uppercase; letter-spacing:1px; margin-bottom:2px;">{label}</div>'
+                f'{label_html}'
                 f'<div style="font-family:\'Segoe UI\', Arial, sans-serif; font-size:12px; color:#e0ded8; '
                 f'line-height:18px;">{body_html}</div>'
               '</td>'
@@ -247,12 +251,20 @@ def _render_so_what_block(analysis: dict | None) -> str:
         f'<tr>{_badge_cell(bg, border, color, impact_label)}</tr></table>'
     )
 
+    # Email only: the narrative parts are stacked into one untitled paragraph for
+    # easier reading. The stored analysis keeps its separate fields.
+    narrative_parts = []
+    for key in ("why_it_matters_to_mtn", "what_happening", "why_happening", "impact_reason", "outlook"):
+        text = str(analysis.get(key) or "").strip()
+        if not text:
+            continue
+        if text[-1] not in ".!?":
+            text += "."
+        narrative_parts.append(_esc(text))
+    narrative_html = impact_badge_html + " ".join(narrative_parts)
+
     rows = [
-        _so_what_row("Why this matters to MTN Ghana", _esc(analysis.get("why_it_matters_to_mtn")), "#60a5fa"),
-        _so_what_row("What is happening", _esc(analysis.get("what_happening")), "#a0aec0"),
-        _so_what_row("Why it is happening", _esc(analysis.get("why_happening")), "#a0aec0"),
-        _so_what_row("Good or bad?", impact_badge_html + _esc(analysis.get("impact_reason")), color),
-        _so_what_row("What is likely next", _esc(analysis.get("outlook")), "#fb923c"),
+        _so_what_row("", narrative_html, color),
         _so_what_row("What we should do", actions_html, "#FFD000"),
         _so_what_row("If we act", _esc(analysis.get("if_we_act")), "#34d399"),
         _so_what_row("If we do not", _esc(analysis.get("if_we_dont")), "#ff5555"),
