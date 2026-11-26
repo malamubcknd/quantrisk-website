@@ -29,7 +29,7 @@ import re
 from datetime import datetime
 from typing import Any, Optional
  
-from . import llm_client
+from . import ai_activity_log, llm_client
  
 logger = logging.getLogger(__name__)
  
@@ -262,14 +262,21 @@ def generate_ai_content(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("AI call raised: %s", exc)
+            ai_activity_log.record_failure(t, f"AI call raised: {str(exc)[:150]}")
             return None
         if raw is None:
-            return None  # every provider unavailable / failed — the caller retries later
+            # every provider unavailable / failed — the caller retries later
+            ai_activity_log.record_failure(t, "no AI provider answered (down, paused, or not configured)")
+            return None
         data = _extract_json(raw)
         result = _normalise(data, sentiment, model_label or "") if data else None
         if result:
+            ai_activity_log.record_success(t, model_label or "")
             return result
         logger.info("AI answer was incomplete or not valid JSON (attempt %d/2) for: %s", attempt, t[:60])
  
+    ai_activity_log.record_failure(t, "AI answer incomplete / not valid JSON (2 attempts)")
     return None
- 
+
+
+ generate_so_what = generate_ai_content

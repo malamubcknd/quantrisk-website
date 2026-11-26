@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy import or_
 
-from . import llm_client
+from . import ai_activity_log, llm_client
 from .so_what_service import (
     LEGACY_SUMMARY_FRAGMENTS,
     analysis_to_json,
@@ -86,12 +86,47 @@ def count_missing_ai_content() -> int:
     return len({r[0] for r in rows})
 
 
-def fill_missing_ai_content(limit: int = 60) -> int:
+def _email_priority(db, pairs) -> dict[str, int]:
     """
-    Generate AI summary + analysis for scored articles that still need them (newest first).
+    Priority per article id: 0 = an alert that would be emailed once the AI text exists,
+    1 = a news article that would be emailed once the AI text exists, 2 = everything else.
+    Uses the same rules as the email senders (app/services/email_rules.py), so the
+    summarizer always works on what is waiting to be sent first.
+    """
+    from datetime import datetime, timezone
+    from ..config import email_config as cfg
+    from ..models.alert import Alert
+    from .email_rules import ALERT_RULES, NEWS_RULES, AlertItem, Context, NewsItem, first_failed_rule
+    from .email_service import load_sent_ids
+
+    now = datetime.now(timezone.utc)
+    news_ctx = Context(now=now, sent_ids=load_sent_ids(cfg.SENT_NEWS_LOG))
+    alert_ctx = Context(now=now, sent_ids=load_sent_ids(cfg.SENT_ALERTS_LOG))
+
+    priority: dict[str, int] = {}
+    for article, risk in pairs.values():
+        failed = first_failed_rule(NewsItem(article, risk), NEWS_RULES, news_ctx)
+        priority[article.id] = 1 if failed is not None and failed.key == "ai" else 2
+
+    ids = list(pairs.keys())
+    for alert in db.query(Alert).filter(Alert.article_id.in_(ids)).all():
+        article, risk = pairs[alert.article_id]
+        failed = first_failed_rule(AlertItem(alert, article, risk), ALERT_RULES, alert_ctx)
+        if failed is not None and failed.key == "ai":
+            priority[article.id] = 0
+    return priority
+
+
+def fill_missing_ai_content(limit: int = 60, source: str = "backfill") -> int:
+    """
+    Generate AI summary + analysis for scored articles that still need them.
+    Order: items waiting to be EMAILED first (alerts, then news), then the rest; newest first.
     Safe to call repeatedly; only one run executes at a time. Returns the number completed.
+    Progress is written to app/logs/ai_summarizer.log and app/logs/ai_status.json.
     """
     if not llm_client.is_available():
+        ai_activity_log.record_run_start(source, 0, 0, limit)
+        ai_activity_log.record_run_end(0, 0, 0, "AI unavailable (no provider configured, or all paused)")
         return 0
     if not _FILL_LOCK.acquire(blocking=False):
         return 0  # another run is already in progress
@@ -100,28 +135,45 @@ def fill_missing_ai_content(limit: int = 60) -> int:
     from ..models.article import Article
     from ..models.risk_score import RiskScore
 
+    done = priority_done = failed = 0
+    stopped: str | None = None
     try:
-        needs_content = _needs_content_clause()
-
         with SessionLocal() as db:
             rows = (
-                db.query(Article.id, Article.scraped_at)
+                db.query(Article, RiskScore)
                 .join(RiskScore, RiskScore.article_id == Article.id)
-                .filter(needs_content)
-                .order_by(Article.scraped_at.desc())
+                .filter(_needs_content_clause())
                 .all()
             )
-            pending = list(dict.fromkeys(r[0] for r in rows))[:limit]
+            pairs: dict = {}                      # article id -> (article, latest risk score)
+            for article, risk in rows:
+                cur = pairs.get(article.id)
+                if cur is None or (risk.scored_at and cur[1].scored_at and risk.scored_at > cur[1].scored_at):
+                    pairs[article.id] = (article, risk)
+            try:
+                priority = _email_priority(db, pairs)
+            except Exception as exc:  # noqa: BLE001 - never block the AI on the priority step
+                logger.warning("AI content: could not compute email priority (%s) — newest first.", exc)
+                priority = {}
+            ordered = sorted(
+                pairs.values(),
+                key=lambda p: (priority.get(p[0].id, 2), -(p[0].scraped_at.timestamp() if p[0].scraped_at else 0)),
+            )
+            pending = [(a.id, priority.get(a.id, 2)) for a, _ in ordered][:limit]
+            n_priority = sum(1 for _, pr in pending if pr < 2)
+            total_priority = sum(1 for pr in priority.values() if pr < 2)
 
+        ai_activity_log.record_run_start(source, len(pairs), total_priority, limit)
         if not pending:
             return 0
 
-        logger.info("AI content: %d articles need an AI summary/analysis (processing up to %d).", len(pending), limit)
+        logger.info("AI content: %d articles need AI text (%d waiting to be emailed); processing up to %d.",
+                    len(pairs), total_priority, limit)
 
-        done = 0
-        for aid in pending:
+        for n, (aid, prio) in enumerate(pending, start=1):
             if not llm_client.is_available():
-                logger.warning("AI content: AI unavailable — stopping this run; will retry later.")
+                stopped = "AI became unavailable (provider paused) — will retry later"
+                logger.warning("AI content: %s", stopped)
                 break
             try:
                 with SessionLocal() as db:
@@ -150,21 +202,28 @@ def fill_missing_ai_content(limit: int = 60) -> int:
                         published_at=art.published_at,
                     )
                     if not result:
+                        failed += 1
                         continue  # nothing is stored for a failed attempt; retried next run
 
                     art.summary = result["summary"]
                     art.analysis = analysis_to_json(result["analysis"])
                     db.commit()
                     done += 1
-                    logger.info("[%d/%d] AI content ready: %s", done, len(pending), (art.title or "")[:55])
+                    if prio < 2:
+                        priority_done += 1
+                    logger.info("[%d/%d]%s AI content ready: %s", n, len(pending),
+                                " (email priority)" if prio < 2 else "", (art.title or "")[:55])
             except Exception as exc:  # noqa: BLE001
+                failed += 1
                 logger.warning("AI content failed for %s: %s", aid, exc)
+            ai_activity_log.record_run_progress(done, priority_done, failed)
             time.sleep(0.3)
 
-        if done:
-            logger.info("AI content: %d articles completed.", done)
+        logger.info("AI content: %d done (%d of %d email-priority in this batch), %d failed.",
+                    done, priority_done, n_priority, failed)
         return done
     finally:
+        ai_activity_log.record_run_end(done, priority_done, failed, stopped)
         _FILL_LOCK.release()
 
 
@@ -177,6 +236,6 @@ def backfill_missing_summaries_async():
         except ValueError:
             limit = 150
         logger.info("Starting background AI content backfill (up to %d articles)...", limit)
-        fill_missing_ai_content(limit=limit)
+        fill_missing_ai_content(limit=limit, source="server start-up")
 
     threading.Thread(target=_worker, daemon=True).start()

@@ -76,6 +76,23 @@ async def lifespan(app: FastAPI):
             next_run_time=datetime.now(timezone.utc),
         )
 
+        # AI summaries / implications: retry anything still missing (email-pending items first)
+        from .services.aisummarizer_service import fill_missing_ai_content
+
+        ai_interval = int(os.getenv("AI_BACKFILL_INTERVAL_MINUTES", "10"))
+        ai_limit = int(os.getenv("AI_BACKFILL_LIMIT", "150"))
+        scheduler.add_job(
+            fill_missing_ai_content,
+            "interval",
+            minutes=max(ai_interval, 1),
+            kwargs={"limit": ai_limit, "source": "scheduler"},
+            id="ai_backfill",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=max(ai_interval, 1) * 60,
+        )
+
         scheduler.start()
         app.state.scheduler = scheduler
 

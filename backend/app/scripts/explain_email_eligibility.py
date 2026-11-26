@@ -1,203 +1,274 @@
 """
 ================================================================================
-MTN QuantRisk - WHY IS (OR ISN'T) AN ARTICLE BEING EMAILED?
+MTN QuantRisk - WHAT IS READY TO BE EMAILED, WHAT IS WAITING, AND WHY NOT?
 ================================================================================
-Read-only. Sends nothing, marks nothing. Run from the backend folder:
+Read-only. Sends nothing, marks nothing. Run from the backend folder (e.g. right
+after `python3 -m app.services.scraper_service`):
 
     python3 -m app.scripts.explain_email_eligibility
-    python3 -m app.scripts.explain_email_eligibility --days 3 --show 8
+    python3 -m app.scripts.explain_email_eligibility --show 10     # more example titles per reason
+    python3 -m app.scripts.explain_email_eligibility --show 0      # numbers only
 
-It walks every article / alert through the SAME rules the senders use and prints how many
-survive each rule, and which rule removed the rest. The final numbers come from the real
-sender functions, so they always match what a real send would do.
+Nothing about the rules is hard-coded here. The report walks the SAME rule lists the
+senders use (app/services/email_rules.py: NEWS_RULES, ALERT_RULES) and prints every
+setting in app/config/email_config.py, so a new / changed / removed rule or setting
+shows up automatically.
+
+Every item lands in exactly ONE bucket:
+    READY NOW  - would be emailed on the next real send (from the real selection code)
+    WAITING    - held back for now, may go out on a later run
+    NOT SENT   - dropped by a rule (reported under the FIRST rule it fails)
 ================================================================================
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sys
-from collections import Counter, defaultdict
-from datetime import datetime, timezone, timedelta
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.models.database import SessionLocal                                  # noqa: E402
-from app.models.article import Article                                        # noqa: E402
-from app.models.alert import Alert                                            # noqa: E402
-from app.models.risk_score import RiskScore                                   # noqa: E402
-from app.services.email_service import load_sent_ids                          # noqa: E402
-from app.services.so_what_service import is_usable_summary, parse_analysis    # noqa: E402
-from app.config import email_config as cfg                                    # noqa: E402
-from app.scripts.send_news_digest import fetch_top_articles_for_category      # noqa: E402
-from app.scripts.send_alert_notifications import fetch_unsent_alerts          # noqa: E402
+from app.models.database import SessionLocal                                   # noqa: E402
+from app.models.article import Article                                         # noqa: E402
+from app.models.alert import Alert                                             # noqa: E402
+from app.models.risk_score import RiskScore                                    # noqa: E402
+from app.services.email_service import load_sent_ids                           # noqa: E402
+from app.config import email_config as cfg                                     # noqa: E402
+from app.services import email_rules as rules                                  # noqa: E402
+from app.services import ai_activity_log, llm_client                           # noqa: E402
+from app.services.aisummarizer_service import count_missing_ai_content         # noqa: E402
 
 LINE = "=" * 78
+READY = "READY NOW"
+BUCKET_HELP = {
+    READY: "would be emailed on the next real send",
+    rules.WAITING: "held back for now - may go out on a later run",
+    rules.NOT_SENT: "dropped by a rule - will not be emailed",
+}
+BUCKET_ORDER = (READY, rules.WAITING, rules.NOT_SENT)
 
 
 def head(text: str) -> None:
     print(f"\n{LINE}\n{text}\n{LINE}")
 
 
-def aware(dt: datetime | None, fallback: datetime) -> datetime:
-    dt = dt or fallback
-    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+def print_settings() -> None:
+    """Every UPPER_CASE setting in email_config.py, so new settings appear without code changes."""
+    head("0. SETTINGS (app/config/email_config.py)")
+    names = [n for n in vars(cfg) if n.isupper() and not n.startswith("_")]
+    width = max((len(n) for n in names), default=10)
+    for name in names:
+        print(f"  {name:<{width}} = {rules.describe_setting(getattr(cfg, name))}")
 
 
-def ai_complete(article: Article) -> bool:
-    return is_usable_summary(article.summary) and bool(parse_analysis(article.analysis))
+def print_rules(title: str, rule_list: list[rules.Rule], extra: list[str]) -> None:
+    print(f"\n  {title} (checked in this order):")
+    for i, rule in enumerate(rule_list, start=1):
+        print(f"    {i}. [{rule.bucket}] {rule.reason()}")
+    for line in extra:
+        print(f"    +  {line}")
+
+
+def print_breakdown(buckets: dict[str, dict[str, list]], show: int, describe) -> dict[str, int]:
+    totals = {b: sum(len(v) for v in buckets[b].values()) for b in BUCKET_ORDER}
+    for b in BUCKET_ORDER:
+        print(f"  {totals[b]:>6}  {b:<10} {BUCKET_HELP[b]}")
+    for b in BUCKET_ORDER:
+        if not totals[b]:
+            continue
+        print(f"\n  {b}: {totals[b]} - by reason")
+        for reason, items in sorted(buckets[b].items(), key=lambda kv: -len(kv[1])):
+            print(f"    {len(items):>6}  {reason}")
+            for item in items[:show]:
+                print(f"              {describe(item)}")
+            if show and len(items) > show:
+                print(f"              ... and {len(items) - show} more")
+    return totals
+
+
+def _ago(iso: str | None) -> str:
+    if not iso:
+        return "never"
+    try:
+        then = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    mins = int((datetime.now(timezone.utc) - then).total_seconds() // 60)
+    when = then.astimezone().strftime("%d %b %H:%M")
+    if mins < 60:
+        return f"{when}  ({mins} min ago)"
+    if mins < 48 * 60:
+        return f"{when}  ({mins // 60} h ago)"
+    return f"{when}  ({mins // 1440} days ago)"
+
+
+def print_ai_status(email_waiting_ai: int) -> bool:
+    """Health of the AI summarizer, from app/logs/ai_status.json + ai_summarizer.log. Returns True if healthy."""
+    head("3. AI SUMMARIZER (app/logs/ai_summarizer.log, app/logs/ai_status.json)")
+    st = ai_activity_log.read_status()
+    available = llm_client.is_available()
+    queue = count_missing_ai_content()
+
+    print(f"  AI provider available now : {'yes' if available else 'NO'}")
+    for line in llm_client.describe_configuration():
+        print(f"      {line}")
+    print(f"  Articles waiting for AI   : {queue}   ({email_waiting_ai} of them are waiting to be EMAILED - done first)")
+    today = st.get("today") or {}
+    print(f"  Today                     : {today.get('succeeded', 0)} succeeded, {today.get('failed', 0)} failed")
+    print(f"  Last success              : {_ago(st.get('last_success_at'))}"
+          + (f"  [{st.get('last_success_model')}]" if st.get("last_success_model") else ""))
+    print(f"  Last failure              : {_ago(st.get('last_failure_at'))}"
+          + (f"  - {st.get('last_failure_reason')}" if st.get("last_failure_reason") else ""))
+    if st.get("last_provider_issue"):
+        print(f"  Last provider problem     : {_ago(st.get('last_provider_issue_at'))}  - {st['last_provider_issue']}")
+    run = st.get("run") or {}
+    if run:
+        print(f"  Backfill run ({run.get('state')}) : from {run.get('source')}, started {_ago(run.get('started_at'))}")
+        print(f"      queued {run.get('queued')} ({run.get('priority_queued')} email-priority), limit {run.get('limit')}: "
+              f"{run.get('done')} done ({run.get('priority_done')} email-priority), {run.get('failed')} failed"
+              + (f" - stopped: {run['stopped_reason']}" if run.get("stopped_reason") else ""))
+    else:
+        print("  Backfill run              : none recorded yet (runs at API start-up and every "
+              f"{os.getenv('AI_BACKFILL_INTERVAL_MINUTES', '10')} min while the API server is running)")
+
+    lines = ai_activity_log.tail(8)
+    if lines:
+        print("\n  Latest log lines:")
+        for ln in lines:
+            print(f"    {ln[:150]}")
+
+    # Verdict
+    problems = []
+    if not available:
+        problems.append("no AI provider is available - check HF_TOKEN / LLM_PROVIDERS in backend/.env "
+                        "(python app/scripts/check_ai_setup.py)")
+    last_ok, last_bad = st.get("last_success_at"), st.get("last_failure_at")
+    if last_bad and (not last_ok or last_bad > last_ok):
+        problems.append(f"the most recent AI attempt failed: {st.get('last_failure_reason')}")
+    if queue and not st.get("run"):
+        problems.append("articles are waiting but no backfill has run - start the API server, or run "
+                        "python app/scripts/run_ai_backfill.py")
+    print()
+    if problems:
+        for p_ in problems:
+            print(f"  !! {p_}")
+    else:
+        print("  AI summarizer looks healthy.")
+    return not problems
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Explain email eligibility")
-    parser.add_argument("--days", type=int, default=cfg.MAX_AGE_DAYS, help="look-back window (default: MAX_AGE_DAYS)")
-    parser.add_argument("--show", type=int, default=5, help="example articles to list per reason (default 5)")
+    parser = argparse.ArgumentParser(description="Show what is ready / waiting / not sent, and why")
+    parser.add_argument("--show", type=int, default=5, help="example items to list per reason (default 5, 0 = none)")
     args = parser.parse_args()
 
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=args.days)
+    print_settings()
 
-    # ── 0. configuration ────────────────────────────────────────────────────
-    head("0. SETTINGS THE SENDERS ARE USING (app/config/email_config.py)")
-    print(f"  SEND_EMAILS               = {cfg.SEND_EMAILS}   (False = nothing is ever sent, only previewed)")
-    print(f"  NEWS_MIN_MTN_RELEVANCE    = {cfg.NEWS_MIN_MTN_RELEVANCE}   (article must score at least this to be in a digest)")
-    print(f"  NEWS_TOP_N                = {cfg.NEWS_TOP_N}   (articles per category per digest)")
-    print(f"  MAX_AGE_DAYS              = {cfg.MAX_AGE_DAYS}   (older items are skipped)")
-    print(f"  ALERT_TIERS_TO_SEND       = {cfg.ALERT_TIERS_TO_SEND}")
-    print(f"  Digest categories + recipients:")
-    if not cfg.NEWS_RECIPIENTS:
-        print("    !! NEWS_RECIPIENTS is EMPTY — no category will ever be processed.")
-    for cat, rec in cfg.NEWS_RECIPIENTS.items():
-        to = [x for x in rec.get("to", []) if x and x.strip()]
-        print(f"    {cat:<12} to: {len(to)} recipient(s)" + ("" if to else "   !! NO 'to' ADDRESS — this category is skipped"))
-
-    sent_news = load_sent_ids(cfg.SENT_NEWS_LOG)
-    sent_alerts = load_sent_ids(cfg.SENT_ALERTS_LOG)
-    print(f"  Already-sent log          : {len(sent_news)} article id(s), {len(sent_alerts)} alert id(s)")
+    news_ctx = rules.Context(now=now, sent_ids=load_sent_ids(rules.setting("SENT_NEWS_LOG")))
+    alert_ctx = rules.Context(now=now, sent_ids=load_sent_ids(rules.setting("SENT_ALERTS_LOG")))
 
     with SessionLocal() as db:
-        # ── 1. news digest funnel ───────────────────────────────────────────
-        head(f"1. NEWS DIGEST — articles in the last {args.days} day(s), rule by rule")
-        rows = db.query(Article, RiskScore).join(RiskScore, RiskScore.article_id == Article.id).all()
+        # ── 1. NEWS ─────────────────────────────────────────────────────────
+        latest: dict[str, RiskScore] = {}
+        for risk in db.query(RiskScore).all():
+            cur = latest.get(risk.article_id)
+            if cur is None or rules.aware(risk.scored_at, now) > rules.aware(cur.scored_at, now):
+                latest[risk.article_id] = risk
 
-        in_window = []
-        seen = set()
-        for article, risk in rows:
-            when = aware(article.published_at or article.scraped_at, now)
-            if when >= cutoff and (article.id, risk.id) not in seen:
-                seen.add((article.id, risk.id))
-                in_window.append((article, risk))
+        ready_ids: set[str] = set()
+        for cat in sorted(news_ctx.digest_categories):
+            selected, _ = rules.select_news_for_category(db, cat, news_ctx)
+            ready_ids.update(it.article.id for it in selected)
 
-        digest_cats = {c for c, r in cfg.NEWS_RECIPIENTS.items() if any(x and x.strip() for x in r.get("to", []))}
-        stages: list[tuple[str, int]] = [("A. scored articles in the window (what the News page counts)", len(in_window))]
-        reasons: dict[str, list[tuple[Article, RiskScore]]] = defaultdict(list)
+        items = [rules.NewsItem(a, latest.get(a.id)) for a in db.query(Article).all()]
+        items.sort(key=lambda it: it.when(now), reverse=True)     # newest examples first
 
-        survivors = []
-        for article, risk in in_window:
-            cat = (risk.category or "").lower()
-            if cat not in digest_cats:
-                reasons[f"category '{cat or '?'}' has no digest / no recipients"].append((article, risk))
+        news_blocker = rules.news_delivery_blocker()
+        news_buckets: dict[str, dict[str, list]] = {b: defaultdict(list) for b in BUCKET_ORDER}
+        for it in items:
+            failed = rules.first_failed_rule(it, rules.NEWS_RULES, news_ctx)
+            if failed:
+                news_buckets[failed.bucket][failed.reason()].append(it)
+            elif it.article.id in ready_ids and news_blocker:
+                news_buckets[rules.WAITING][f"passes every rule, but {news_blocker}"].append(it)
+            elif it.article.id in ready_ids:
+                news_buckets[READY][f"top {rules.setting('NEWS_TOP_N')} in its category"].append(it)
             else:
-                survivors.append((article, risk))
-        stages.append(("B. category is a digest category WITH a 'to' address", len(survivors)))
+                news_buckets[rules.WAITING][rules.TOP_N_REASON()].append(it)
 
-        nxt = []
-        for article, risk in survivors:
-            if (risk.mtn_relevance or 0) < cfg.NEWS_MIN_MTN_RELEVANCE:
-                reasons[f"relevance below {cfg.NEWS_MIN_MTN_RELEVANCE}"].append((article, risk))
+        team_cats = sorted(news_ctx.team_categories)
+        head(f"1. NEWS DIGEST - {len(items)} articles in the database")
+        print_rules("Rules", rules.NEWS_RULES, [
+            rules.TOP_N_REASON(),
+            "delivery: " + (news_blocker or (
+                f"Head of Risks gets every selected article ({len(rules.head_of_risks_recipients())} recipient(s)); "
+                f"team emails for: {', '.join(team_cats) if team_cats else 'none'}")),
+        ])
+        print()
+
+        def describe_news(it: rules.NewsItem) -> str:
+            rel = f"{it.risk.mtn_relevance:.2f}" if it.risk and it.risk.mtn_relevance is not None else " -  "
+            return f"{it.when(now):%d %b}  rel {rel}  [{it.category or '-'}]  {(it.article.title or '')[:58]}"
+
+        news_totals = print_breakdown(news_buckets, args.show, describe_news)
+
+        # ── 2. ALERTS ───────────────────────────────────────────────────────
+        alert_items = []
+        seen: set[str] = set()
+        for alert, art in db.query(Alert, Article).join(Article, Article.id == Alert.article_id).all():
+            if alert.id not in seen:
+                seen.add(alert.id)
+                alert_items.append(rules.AlertItem(alert, art, latest.get(art.id)))
+        alert_items.sort(key=lambda it: rules.aware(it.alert.created_at, now), reverse=True)
+
+        blocker = rules.alert_delivery_blocker()
+        alert_buckets: dict[str, dict[str, list]] = {b: defaultdict(list) for b in BUCKET_ORDER}
+        for it in alert_items:
+            failed = rules.first_failed_rule(it, rules.ALERT_RULES, alert_ctx)
+            if failed:
+                alert_buckets[failed.bucket][failed.reason()].append(it)
+            elif blocker:
+                alert_buckets[rules.WAITING][f"passes every rule, but {blocker}"].append(it)
             else:
-                nxt.append((article, risk))
-        survivors = nxt
-        stages.append((f"C. relevance >= {cfg.NEWS_MIN_MTN_RELEVANCE}", len(survivors)))
+                alert_buckets[READY]["passes every rule"].append(it)
 
-        nxt = []
-        for article, risk in survivors:
-            if article.id in sent_news:
-                reasons["already sent before"].append((article, risk))
-            else:
-                nxt.append((article, risk))
-        survivors = nxt
-        stages.append(("D. not already sent", len(survivors)))
+        head(f"2. ALERT EMAIL - {len(alert_items)} alerts in the database")
+        print_rules("Rules", rules.ALERT_RULES, ["delivery: " + (blocker or "recipients configured - OK")])
+        print()
 
-        nxt = []
-        for article, risk in survivors:
-            if not ai_complete(article):
-                reasons["AI summary / implications not finished yet"].append((article, risk))
-            else:
-                nxt.append((article, risk))
-        survivors = nxt
-        stages.append(("E. AI summary AND implications finished", len(survivors)))
+        def describe_alert(it: rules.AlertItem) -> str:
+            return (f"{rules.aware(it.alert.created_at, now):%d %b}  {it.alert.tier or '-':<8} "
+                    f"[{it.alert.category or '-'}]  {(it.alert.headline or '')[:58]}")
 
-        for label, n in stages:
-            print(f"  {n:>5}   {label}")
+        alert_totals = print_breakdown(alert_buckets, args.show, describe_alert)
 
-        # real selection (top N per category) using the actual sender code
-        picked_total = 0
-        per_cat = {}
-        for cat in cfg.NEWS_RECIPIENTS:
-            if cat not in digest_cats:
-                continue
-            picked, waiting = fetch_top_articles_for_category(db, cat, sent_news, now)
-            per_cat[cat] = (len(picked), waiting)
-            picked_total += len(picked)
-        print(f"  {picked_total:>5}   F. SELECTED to send (top {cfg.NEWS_TOP_N} per category) — this is what a real run emails")
+    # ── 3. AI summarizer ────────────────────────────────────────────────────
+    email_waiting_ai = sum(
+        len(v) for b in (news_buckets, alert_buckets)
+        for k, v in b[rules.WAITING].items() if k == next(r.reason() for r in rules.NEWS_RULES if r.key == "ai")
+    )
+    ai_ok = print_ai_status(email_waiting_ai)
 
-        print("\n  Per category   (selected / still waiting for the AI):")
-        for cat, (n, w) in per_cat.items():
-            print(f"    {cat:<12} {n} / {w}")
-
-        print("\n  What removed the articles:")
-        for reason, items in sorted(reasons.items(), key=lambda kv: -len(kv[1])):
-            print(f"    {len(items):>5}  {reason}")
-
-        # relevance distribution is the usual culprit
-        buckets = Counter()
-        for _, risk in in_window:
-            r = risk.mtn_relevance or 0
-            buckets["< 0.50" if r < 0.5 else "0.50 – 0.79" if r < 0.8 else "0.80 – 0.99" if r < 1.0 else "1.00"] += 1
-        print("\n  Relevance spread of the articles in the window:")
-        for k in ("< 0.50", "0.50 – 0.79", "0.80 – 0.99", "1.00"):
-            print(f"    {k:<12} {buckets.get(k, 0)}")
-
-        shown = 0
-        low = reasons.get(f"relevance below {cfg.NEWS_MIN_MTN_RELEVANCE}", [])
-        if low and args.show:
-            print(f"\n  Examples removed for low relevance:")
-            for article, risk in sorted(low, key=lambda x: -(x[1].mtn_relevance or 0))[: args.show]:
-                print(f"    {risk.mtn_relevance:.2f}  [{risk.category}]  {article.title[:70]}  — {article.source_name}")
-                shown += 1
-
-        # ── 2. alert funnel ─────────────────────────────────────────────────
-        head(f"2. ALERT EMAIL — alerts in the last {args.days} day(s), rule by rule")
-        alert_rows = (
-            db.query(Alert, Article)
-            .join(Article, Article.id == Alert.article_id)
-            .all()
-        )
-        a_window = [(a, art) for a, art in alert_rows if aware(a.created_at, now) >= cutoff]
-        a_tier = [(a, art) for a, art in a_window if a.tier in cfg.ALERT_TIERS_TO_SEND]
-        a_unsent = [(a, art) for a, art in a_tier if a.id not in sent_alerts]
-        a_ai = [(a, art) for a, art in a_unsent if ai_complete(art)]
-        for n, label in (
-            (len(a_window), "A. alerts raised in the window"),
-            (len(a_tier), f"B. tier is one of {cfg.ALERT_TIERS_TO_SEND}"),
-            (len(a_unsent), "C. not already sent"),
-            (len(a_ai), "D. AI summary AND implications finished"),
-        ):
-            print(f"  {n:>5}   {label}")
-        ready, waiting = fetch_unsent_alerts(db, sent_alerts)
-        print(f"  {len(ready):>5}   E. READY to send (real sender; {waiting} still waiting for the AI)")
-        print("  (Alerts have no relevance threshold and no per-category cap: every qualifying alert is included.)")
-
-    # ── 3. verdict ──────────────────────────────────────────────────────────
-    head("WHAT THIS MEANS")
-    if not cfg.NEWS_RECIPIENTS or not digest_cats:
-        print("  The digest has no category with a recipient, so it can never send. Fix NEWS_RECIPIENTS ('to').")
-    elif picked_total == 0:
-        top = max(reasons.items(), key=lambda kv: len(kv[1]))[0] if reasons else "no articles in the window"
-        print(f"  Nothing is eligible. The biggest reason is: {top}.")
-    else:
-        print(f"  {picked_total} article(s) would be emailed on the next real run.")
+    # ── 4. verdict ──────────────────────────────────────────────────────────
+    head("SUMMARY")
+    if not rules.setting("SEND_EMAILS", True):
+        print("  !! SEND_EMAILS is False - a real run only logs, it does not send.")
+    if news_blocker:
+        print(f"  !! News: {news_blocker} - nothing can be sent.")
+    if blocker:
+        print(f"  !! Alerts: {blocker}.")
+    if not ai_ok:
+        print("  !! AI summarizer has a problem - see section 3. Items 'waiting for the AI' will not go out until it is fixed.")
+    for label, totals, buckets in (("News  ", news_totals, news_buckets), ("Alerts", alert_totals, alert_buckets)):
+        line = ", ".join(f"{totals[b]} {b.lower()}" for b in BUCKET_ORDER)
+        print(f"  {label}: {line}")
+        if not totals[READY] and totals[rules.NOT_SENT]:
+            top = max(buckets[rules.NOT_SENT].items(), key=lambda kv: len(kv[1]))[0]
+            print(f"           biggest reason: {top}")
     return 0
 
 

@@ -62,6 +62,8 @@ def _warn_once(key: str, message: str) -> None:
     if key not in _warned:
         _warned.add(key)
         logger.error(message)
+        from . import ai_activity_log
+        ai_activity_log.record_provider_issue(message)
 
 
 def _split(value: str) -> list[str]:
@@ -153,6 +155,8 @@ def describe_configuration() -> list[str]:
 def _trip(provider: str, seconds: int, reason: str) -> None:
     _disabled_until[provider] = time.time() + seconds
     logger.error("%s — %s calls paused for %d minutes.", reason, provider, seconds // 60)
+    from . import ai_activity_log
+    ai_activity_log.record_provider_issue(f"{reason} — {provider} paused for {seconds // 60} minutes")
 
 
 def _extract_text(data: dict) -> Optional[str]:

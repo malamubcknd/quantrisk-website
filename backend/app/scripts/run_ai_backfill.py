@@ -57,7 +57,7 @@ def main() -> int:
 
     try:
         while done_total < target:
-            done = fill_missing_ai_content(limit=min(BATCH, target - done_total))
+            done = fill_missing_ai_content(limit=min(BATCH, target - done_total), source="manual script")
             if done == 0:
                 print("Stopped: no more articles could be completed right now "
                       "(either none are left, or the AI is temporarily unavailable).")

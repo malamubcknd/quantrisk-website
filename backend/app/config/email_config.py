@@ -9,7 +9,7 @@ All email recipients, sender preferences, and thresholds are configured here.
 # ── 1. OUTLOOK SENDER PREFERENCE ──────────────────────────────────────────────
 # If you have multiple accounts set up in your Outlook profile, input your work email here.
 # Leave it as "" (empty string) to automatically use your default Outlook account.
-SENDER_EMAIL = "marvin.alamu@mtn.com"
+SENDER_EMAIL = "brmcompliance@mtn.com"
  
  
 # ── 2. NEWS FEED DIGEST RECIPIENTS (OPTIONAL) ──────────────────────────────────
